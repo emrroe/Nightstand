@@ -311,16 +311,36 @@ function HomeScreen:headBand(h, band_y)
     }
 end
 
+--- Two lines of caption, measured rather than guessed: a fixed fraction of
+--- the band was reserving nearly twice what the text needs.
+function HomeScreen:captionHeight()
+    local title = text("Ag", "cfont", 12)
+    local status = text("Ag", "infont", 10)
+    local total = title:getSize().h + status:getSize().h
+    title:free()
+    status:free()
+    return total
+end
+
 function HomeScreen:gridBand(h, band_y)
     local w = self.screen_w
-    local gap = math.floor(w * 0.018)
+    local row_gap = math.floor(w * 0.018)
     local area_w = w - 2 * self.gutter
-    local caption_h = math.floor(h * 0.12)
-    local cell_h = math.floor((h - (self.rows - 1) * gap) / self.rows)
-    local cover_h = cell_h - caption_h
-    local cover_w = math.min(math.floor((area_w - (self.cols - 1) * gap) / self.cols),
-                             math.floor(cover_h / 1.5))
-    cover_h = math.floor(cover_w * 1.5)
+    local caption_h = self:captionHeight()
+    local cell_h = math.floor((h - (self.rows - 1) * row_gap) / self.rows)
+
+    -- Whichever of width and height binds first sets the cover size; any
+    -- width left over is shared out between the columns so the row still
+    -- reaches both margins.
+    local by_width = math.floor((area_w - (self.cols - 1) * row_gap) / self.cols)
+    local by_height = math.floor((cell_h - caption_h) / 1.5)
+    local cover_w = math.min(by_width, by_height)
+    local cover_h = math.floor(cover_w * 1.5)
+
+    local gap = row_gap
+    if self.cols > 1 then
+        gap = math.floor((area_w - self.cols * cover_w) / (self.cols - 1))
+    end
 
     local grid = VerticalGroup:new{ align = "left" }
     local first = (self.page - 1) * self.per_page + 1
@@ -339,7 +359,7 @@ function HomeScreen:gridBand(h, band_y)
                 table.insert(line, cell)
 
                 local x = self.gutter + (col - 1) * (cover_w + gap)
-                local cy = band_y + (row - 1) * (cell_h + gap)
+                local cy = band_y + (row - 1) * (cell_h + row_gap)
                 self:zone(x, cy, cover_w, cover_h, function() self:openBook(entry) end)
             else
                 table.insert(line, hspan(cover_w))
@@ -347,7 +367,7 @@ function HomeScreen:gridBand(h, band_y)
         end
         table.insert(grid, line)
         if row < self.rows then
-            table.insert(grid, VerticalSpan:new{ width = gap })
+            table.insert(grid, VerticalSpan:new{ width = row_gap })
         end
     end
 
