@@ -48,6 +48,13 @@ local BAND = {
     tabs   = 0.044,
 }
 
+-- Order matters: it is the order the segments appear in.
+local FILTERS = {
+    { id = "all",     label = "All" },
+    { id = "device",  label = "On device" },
+    { id = "reading", label = "Reading" },
+}
+
 local HomeScreen = InputContainer:extend{
     name = "nightstand_home",
     covers_fullscreen = true,
@@ -96,15 +103,39 @@ function HomeScreen:init()
         self.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = full } }
     end
 
-    self.entries = Books:list(Settings:get("books_dir"))
+    self.entries = Books:list(Settings:booksDir())
     self.current, self.fresh = Books:current(self.entries)
+    self.filter = self.filter or "all"
+    self:recompute()
+    self:build()
+end
+
+--- Everything that depends on the active filter. Called again on refresh,
+--- because build() on its own would paint a stale page count.
+function HomeScreen:recompute()
+    self.shown = self:visibleEntries()
     self.cols = Settings:get("grid_cols")
     self.rows = Settings:get("grid_rows")
     self.per_page = self.cols * self.rows
-    self.pages = math.max(1, math.ceil(#self.entries / self.per_page))
+    self.pages = math.max(1, math.ceil(#self.shown / self.per_page))
     if self.page > self.pages then self.page = self.pages end
+end
 
-    self:build()
+function HomeScreen:visibleEntries()
+    if self.filter == "all" then return self.entries end
+    local out = {}
+    for _, entry in ipairs(self.entries) do
+        local keep = (self.filter == "device" and entry.on_device)
+                  or (self.filter == "reading" and entry.status == "reading")
+        if keep then table.insert(out, entry) end
+    end
+    return out
+end
+
+function HomeScreen:setFilter(id)
+    if self.filter == id then return end
+    self.filter, self.page = id, 1
+    self:refresh()
 end
 
 function HomeScreen:zone(x, y, w, h, callback)
@@ -137,7 +168,8 @@ function HomeScreen:build()
     add(rule(w), Size.line.thin)
     y = y - Size.line.thin
 
-    add(self:headBand(heights.head), heights.head)
+    local head_y = y
+    add(self:headBand(heights.head, head_y), heights.head)
     add(self:gridBand(heights.grid, y + heights.head), heights.grid)
     y = y + 0 -- gridBand registered its own zones
     add(self:pagerBand(heights.pager, y), heights.pager)
@@ -227,9 +259,49 @@ function HomeScreen:heroBand(h, band_y)
                 HorizontalGroup:new{ align = "top", tile, hspan(self.gutter), meta })
 end
 
-function HomeScreen:headBand(h)
-    local label = T(_("LIBRARY  ·  %1 books"), #self.entries)
-    return band(self.screen_w, h, self.gutter, text(label, "infont", 12))
+function HomeScreen:filterCell(spec, active)
+    return FrameContainer:new{
+        background = active and BLACK or WHITE,
+        color = BLACK,
+        bordersize = Size.border.thin,
+        padding = Size.padding.small,
+        margin = 0,
+        radius = 0,
+        text(spec.label, "infont", 11, active and WHITE or BLACK),
+    }
+end
+
+function HomeScreen:headBand(h, band_y)
+    local strip = HorizontalGroup:new{ align = "center" }
+    local widths, total = {}, 0
+    for index, spec in ipairs(FILTERS) do
+        local cell = self:filterCell(spec, self.filter == spec.id)
+        local cell_w = cell:getSize().w
+        widths[index] = cell_w
+        total = total + cell_w
+        table.insert(strip, cell)
+    end
+
+    local inner_w = self.screen_w - 2 * self.gutter
+    local strip_x = self.gutter + inner_w - total
+    local running = strip_x
+    for index, spec in ipairs(FILTERS) do
+        local cell_w = widths[index]
+        local id = spec.id
+        self:zone(running, band_y, cell_w, h, function() self:setFilter(id) end)
+        running = running + cell_w
+    end
+
+    local label = text(T(_("LIBRARY  ·  %1 books"), #self.shown), "infont", 12)
+    return LeftContainer:new{
+        dimen = Geom:new{ w = self.screen_w, h = h },
+        HorizontalGroup:new{
+            align = "center",
+            hspan(self.gutter),
+            LeftContainer:new{ dimen = Geom:new{ w = inner_w - total, h = h }, label },
+            strip,
+        },
+    }
 end
 
 function HomeScreen:gridBand(h, band_y)
@@ -250,7 +322,7 @@ function HomeScreen:gridBand(h, band_y)
         local line = HorizontalGroup:new{ align = "top" }
         for col = 1, self.cols do
             local idx = first + (row - 1) * self.cols + (col - 1)
-            local entry = self.entries[idx]
+            local entry = self.shown[idx]
             if col > 1 then table.insert(line, hspan(gap)) end
             if entry then
                 local cell = VerticalGroup:new{ align = "left" }
@@ -423,6 +495,7 @@ end
 
 function HomeScreen:refresh()
     self.tap_zones = {}
+    self:recompute()
     self:build()
     UIManager:setDirty(self, "ui")
 end
