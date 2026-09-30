@@ -41,12 +41,13 @@ local GREY = Blitbuffer.COLOR_GRAY
 
 -- Fractions of screen height, from the measured design.
 local BAND = {
-    status   = 0.034,
-    hero     = 0.238,
-    head     = 0.045,
-    head_gap = 0.024,  -- space between the header row and the first cover
-    pager    = 0.026,
-    tabs     = 0.044,
+    status = 0.034,
+    hero   = 0.238,
+    -- The header row is centred in this band, so its height is the gap above
+    -- and below the row as well: rule, space, LIBRARY + filters, space, covers.
+    head   = 0.069,
+    pager  = 0.026,
+    tabs   = 0.044,
 }
 
 -- Order matters: it is the order the segments appear in.
@@ -150,7 +151,7 @@ function HomeScreen:build()
         heights[key] = math.floor(h * fraction)
     end
     heights.grid = h - heights.status - heights.hero - heights.head
-                     - heights.head_gap - heights.pager - heights.tabs
+                     - heights.pager - heights.tabs
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -172,7 +173,6 @@ function HomeScreen:build()
     -- Each band needs the y it starts at, so read it before add() moves on.
     local head_y = y
     add(self:headBand(heights.head, head_y), heights.head)
-    add(VerticalSpan:new{ width = heights.head_gap }, heights.head_gap)
 
     local grid_y = y
     add(self:gridBand(heights.grid, grid_y), heights.grid)
