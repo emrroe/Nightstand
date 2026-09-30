@@ -246,10 +246,17 @@ function HomeScreen:heroBand(h, band_y)
             percentage = percent, bordersize = 0,
             fillcolor = BLACK, bgcolor = GREY,
         })
+        local parts = {}
         if entry.pages then
-            table.insert(meta, text(T(_("page %1 of %2"),
-                                      math.floor(percent * entry.pages + 0.5), entry.pages),
-                                    "infont", 12, GREY, meta_w))
+            table.insert(parts, T(_("page %1 of %2"),
+                                  math.floor(percent * entry.pages + 0.5), entry.pages))
+        end
+        if entry.device then
+            table.insert(parts, T(_("from %1, %2"), entry.device,
+                                  os.date("%d %b %H:%M", entry.synced_at or os.time())))
+        end
+        if #parts > 0 then
+            table.insert(meta, text(table.concat(parts, "  ·  "), "infont", 12, GREY, meta_w))
         end
     end
 

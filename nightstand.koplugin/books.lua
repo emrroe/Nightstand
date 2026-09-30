@@ -9,6 +9,7 @@ local BookList = require("ui/widget/booklist")
 local DocSettings = require("docsettings")
 local Availability = require("availability")
 local Catalog = require("catalog")
+local Progress = require("progress")
 
 local Books = {}
 
@@ -31,7 +32,7 @@ function Books:entryFor(file, checksum)
     local props = propsFor(file)
     local title = props and (props.display_title or props.title)
     if not title or title == "" then title = baseName(file) end
-    return {
+    local entry = {
         file = file,
         checksum = checksum,
         title = title,
@@ -41,6 +42,17 @@ function Books:entryFor(file, checksum)
         status = BookList.getBookStatus(file),
         on_device = true,
     }
+
+    -- A position read on another device only exists on the server. Take
+    -- whichever is further along rather than letting one overwrite the other.
+    local synced = Progress:get(checksum)
+    if synced and synced.percentage > (entry.percent or 0) then
+        entry.percent = synced.percentage
+        entry.device = synced.device
+        entry.synced_at = synced.timestamp
+        entry.status = synced.percentage >= 1 and "complete" or "reading"
+    end
+    return entry
 end
 
 --- Titles compared loosely: local names carry the author, catalogue ones

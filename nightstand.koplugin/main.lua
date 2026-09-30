@@ -16,6 +16,7 @@ local Availability = require("availability")
 local Books = require("books")
 local Catalog = require("catalog")
 local CoverCache = require("covercache")
+local Progress = require("progress")
 local Settings = require("settings")
 local _ = require("gettext")
 local T = require("ffi/util").template
@@ -77,18 +78,21 @@ function Nightstand:refreshCatalogue(touchmenu_instance)
     end
 
     Availability:invalidate()
+    local shelf = Books:list(Settings:booksDir())
     local fetched = 0
-    for _, entry in ipairs(Books:list(Settings:booksDir())) do
+    for _, entry in ipairs(shelf) do
         if not entry.on_device and not CoverCache:hasRemote(entry.book_id) then
             if CoverCache:fetchRemote(entry.book_id, entry.cover_url) then
                 fetched = fetched + 1
             end
         end
     end
+    local positions = Progress:refreshAll(shelf)
 
     UIManager:close(working)
     UIManager:show(InfoMessage:new{
-        text = T(_("%1 books in the catalogue.\n%2 covers fetched."), #entries, fetched),
+        text = T(_("%1 books in the catalogue.\n%2 covers fetched.\n%3 reading positions."),
+                 #entries, fetched, positions),
     })
     if touchmenu_instance then touchmenu_instance:updateItems() end
 end
