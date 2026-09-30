@@ -99,6 +99,34 @@ local function authorsIn(block)
     return table.concat(names, ", ")
 end
 
+--- Stream a path from the server straight into a local file. Book files can
+--- run to tens of megabytes, so this does not buffer the body the way get() does.
+function Catalog:fetchTo(path, dest)
+    local server = Settings:get("server"):gsub("/+$", "")
+    if server == "" then return false, "no server configured" end
+    local user, password = credentials()
+
+    local handle, io_err = io.open(dest, "wb")
+    if not handle then return false, io_err or "could not write the file" end
+
+    socketutil:set_timeout(20, 300)
+    local code, _headers, status = socket.skip(1, http.request{
+        url = server .. path,
+        method = "GET",
+        headers = { ["Accept-Encoding"] = "identity" },
+        sink = socketutil.file_sink(handle),
+        user = user,
+        password = password,
+    })
+    socketutil:reset_timeout()
+
+    if code ~= 200 then
+        os.remove(dest)
+        return false, tostring(status or code)
+    end
+    return true
+end
+
 --- Pull the flat book feed and keep the fields the home screen needs.
 function Catalog:refresh()
     local body, err = self:get(ALL_BOOKS)

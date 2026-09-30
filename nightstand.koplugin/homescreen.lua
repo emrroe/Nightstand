@@ -378,8 +378,32 @@ end
 -- behaviour ----------------------------------------------------------------
 
 function HomeScreen:openBook(entry)
+    if entry.on_device and entry.file then
+        UIManager:close(self)
+        require("apps/reader/readerui"):showReader(entry.file)
+    else
+        self:fetchAndOpen(entry)
+    end
+end
+
+function HomeScreen:fetchAndOpen(entry)
+    local InfoMessage = require("ui/widget/infomessage")
+    local working = InfoMessage:new{ text = T(_("Fetching %1…"), entry.title) }
+    UIManager:show(working)
+    UIManager:forceRePaint()
+
+    local ok, result = require("download"):book(entry)
+    UIManager:close(working)
+
+    if not ok then
+        UIManager:show(InfoMessage:new{
+            text = T(_("Could not fetch %1.\n%2"), entry.title, tostring(result)),
+        })
+        self:refresh()
+        return
+    end
     UIManager:close(self)
-    require("apps/reader/readerui"):showReader(entry.file)
+    require("apps/reader/readerui"):showReader(result)
 end
 
 function HomeScreen:turnPage(delta)
