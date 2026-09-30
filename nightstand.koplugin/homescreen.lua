@@ -428,6 +428,7 @@ function HomeScreen:onClose()
 end
 
 function HomeScreen:onCloseWidget()
+    if self.on_closed then self.on_closed() end
     UIManager:setDirty(nil, "full")
 end
 

@@ -13,7 +13,7 @@ Settings.LAYOUTS = {
 
 Settings.DEFAULTS = {
     layout = "hero_grid",
-    show_on_startup = true,
+    replace_file_browser = true,
     server = "",
     username = "",
     password = "",

@@ -25,22 +25,24 @@ local Nightstand = WidgetContainer:extend{
     is_doc_only = false,
 }
 
--- The file manager is rebuilt every time a book closes, so without this the
--- home screen would reappear on top of it each time.
-local opened_this_session = false
+-- KOReader rebuilds the file manager on startup and again every time a book
+-- closes. Showing the home screen on each of those is what makes it the home
+-- rather than a screen you navigate to; the file browser stays underneath as
+-- the way out.
+local shown_home = nil
 
 function Nightstand:init()
     self.ui.menu:registerToMainMenu(self)
-    if self.ui.name == "filemanager" and self.ui.registerPostInitCallback then
-        self.ui:registerPostInitCallback(function() self:openAtStartup() end)
+    -- `name = "filemanager"` lives on the FileChooser, not on FileManager, so
+    -- the absence of a document is what distinguishes the two hosts.
+    if not self.ui.document and self.ui.registerPostInitCallback then
+        self.ui:registerPostInitCallback(function() self:openAsHome() end)
     end
 end
 
-function Nightstand:openAtStartup()
-    if opened_this_session then return end
-    if not Settings:get("show_on_startup") then return end
+function Nightstand:openAsHome()
+    if not Settings:get("replace_file_browser") then return end
     if Settings:booksDir() == "" then return end
-    opened_this_session = true
     UIManager:nextTick(function() self:open() end)
 end
 
@@ -51,7 +53,11 @@ function Nightstand:open()
         })
         return
     end
-    UIManager:show(require("homescreen"):new{})
+    if shown_home and UIManager:isWidgetShown(shown_home) then return end
+    shown_home = require("homescreen"):new{
+        on_closed = function() shown_home = nil end,
+    }
+    UIManager:show(shown_home)
 end
 
 --- Pull the CWA catalogue, then fetch a cover for every book that is not
@@ -168,9 +174,10 @@ function Nightstand:addToMainMenu(menu_items)
                 callback = function() self:open() end,
             },
             {
-                text = _("Open it when KOReader starts"),
-                checked_func = function() return Settings:get("show_on_startup") end,
-                callback = function() Settings:toggle("show_on_startup") end,
+                text = _("Use Nightstand instead of the file browser"),
+                help_text = _([[Shows the home screen whenever the file browser would appear: at startup and after closing a book. Close it to reach the file browser underneath.]]),
+                checked_func = function() return Settings:get("replace_file_browser") end,
+                callback = function() Settings:toggle("replace_file_browser") end,
                 separator = true,
             },
             {
