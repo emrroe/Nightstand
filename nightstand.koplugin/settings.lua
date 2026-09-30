@@ -46,6 +46,19 @@ function Settings:toggle(key)
     self:set(key, not self:get(key))
 end
 
+--- The configured folder, or ~/Books when it exists and nothing is set.
+function Settings:booksDir()
+    local dir = self:get("books_dir")
+    if dir ~= "" then return dir end
+    local home = os.getenv("HOME")
+    if home then
+        local lfs = require("libs/libkoreader-lfs")
+        local guess = home .. "/Books"
+        if lfs.attributes(guess, "mode") == "directory" then return guess end
+    end
+    return ""
+end
+
 function Settings:layoutName()
     local current = self:get("layout")
     for _, layout in ipairs(self.LAYOUTS) do

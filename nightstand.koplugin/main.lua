@@ -27,12 +27,13 @@ function Nightstand:init()
 end
 
 function Nightstand:open()
-    -- The layouts land next; until then, say plainly what is configured.
-    UIManager:show(InfoMessage:new{
-        text = T(_("Nightstand layout: %1\nBooks on this device: %2"),
-                 Settings:layoutName(),
-                 Availability:ensure(Settings:get("books_dir")) and Availability:count()),
-    })
+    if Settings:booksDir() == "" then
+        UIManager:show(InfoMessage:new{
+            text = _("Set a books folder first, under Tools > Nightstand."),
+        })
+        return
+    end
+    UIManager:show(require("homescreen"):new{})
 end
 
 function Nightstand:editServer()
@@ -127,9 +128,8 @@ function Nightstand:addToMainMenu(menu_items)
             },
             {
                 text_func = function()
-                    return T(_("Books folder: %1"),
-                             Settings:get("books_dir") ~= ""
-                                 and Settings:get("books_dir") or _("not set"))
+                    local dir = Settings:booksDir()
+                    return T(_("Books folder: %1"), dir ~= "" and dir or _("not set"))
                 end,
                 keep_menu_open = true,
                 callback = function() self:editServer() end,
@@ -183,13 +183,13 @@ function Nightstand:addToMainMenu(menu_items)
             },
             {
                 text_func = function()
-                    Availability:ensure(Settings:get("books_dir"))
+                    Availability:ensure(Settings:booksDir())
                     return T(_("Books on this device: %1"), Availability:count())
                 end,
                 keep_menu_open = true,
                 callback = function(touchmenu_instance)
                     Availability:invalidate()
-                    Availability:ensure(Settings:get("books_dir"))
+                    Availability:ensure(Settings:booksDir())
                     if touchmenu_instance then touchmenu_instance:updateItems() end
                 end,
                 help_text = _("Tap to rebuild the index."),
