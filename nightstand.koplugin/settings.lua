@@ -16,6 +16,7 @@ Settings.DEFAULTS = {
     show_on_startup = true,
     server = "",
     username = "",
+    password = "",
     books_dir = "",
     refresh_on_wake = true,
     captions = true,

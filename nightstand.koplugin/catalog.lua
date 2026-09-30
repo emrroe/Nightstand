@@ -28,11 +28,15 @@ local function storePath()
 end
 
 local function credentials()
-    local user, password = Settings:get("username"), Settings:get("password")
+    local user = Settings:get("username") or ""
+    local password = Settings:get("password") or ""
     if user ~= "" and password ~= "" then return user, password end
     -- Fall back to the CWA sync plugin's credentials rather than asking twice.
     local cwa = G_reader_settings and G_reader_settings:readSetting("cwasync")
-    if cwa then return cwa.username, cwa.password end
+    if cwa and cwa.username and cwa.password and cwa.password ~= "" then
+        return cwa.username, cwa.password
+    end
+    if user == "" or password == "" then return nil, nil end
     return user, password
 end
 
