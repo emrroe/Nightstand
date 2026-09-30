@@ -25,8 +25,23 @@ local Nightstand = WidgetContainer:extend{
     is_doc_only = false,
 }
 
+-- The file manager is rebuilt every time a book closes, so without this the
+-- home screen would reappear on top of it each time.
+local opened_this_session = false
+
 function Nightstand:init()
     self.ui.menu:registerToMainMenu(self)
+    if self.ui.name == "filemanager" and self.ui.registerPostInitCallback then
+        self.ui:registerPostInitCallback(function() self:openAtStartup() end)
+    end
+end
+
+function Nightstand:openAtStartup()
+    if opened_this_session then return end
+    if not Settings:get("show_on_startup") then return end
+    if Settings:booksDir() == "" then return end
+    opened_this_session = true
+    UIManager:nextTick(function() self:open() end)
 end
 
 function Nightstand:open()
@@ -151,6 +166,11 @@ function Nightstand:addToMainMenu(menu_items)
                 text = _("Open Nightstand"),
                 keep_menu_open = false,
                 callback = function() self:open() end,
+            },
+            {
+                text = _("Open it when KOReader starts"),
+                checked_func = function() return Settings:get("show_on_startup") end,
+                callback = function() Settings:toggle("show_on_startup") end,
                 separator = true,
             },
             {

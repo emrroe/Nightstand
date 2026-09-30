@@ -13,6 +13,7 @@ Settings.LAYOUTS = {
 
 Settings.DEFAULTS = {
     layout = "hero_grid",
+    show_on_startup = true,
     server = "",
     username = "",
     books_dir = "",
