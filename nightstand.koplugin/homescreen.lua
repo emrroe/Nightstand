@@ -318,7 +318,7 @@ function HomeScreen:coverTile(entry, w, h, no_tag)
         dimen = Geom:new{ w = w, h = h },
         allow_mirroring = false,
     }
-    local bb = CoverCache:get(entry.file, w, h)
+    local bb = CoverCache:get(entry, w, h)
     if bb then
         table.insert(group, ImageWidget:new{
             image = bb, image_disposable = false, width = w, height = h,

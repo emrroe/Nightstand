@@ -8,6 +8,7 @@ server-only books join the same list with `on_device = false`.
 local BookList = require("ui/widget/booklist")
 local DocSettings = require("docsettings")
 local Availability = require("availability")
+local Catalog = require("catalog")
 
 local Books = {}
 
@@ -42,13 +43,54 @@ function Books:entryFor(file, checksum)
     }
 end
 
---- Every book, most recently read first.
+--- Titles compared loosely: local names carry the author, catalogue ones
+--- do not, so a containment test beats equality.
+local function norm(str)
+    str = (str or ""):lower():gsub("&#39;", "'")
+    str = str:gsub("[^%w]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    return str
+end
+
+--- Local files merged with the CWA catalogue. Books only on the server join
+--- the list with `on_device = false` and carry their download link.
 function Books:list(books_dir)
     local map = Availability:ensure(books_dir) or {}
-    local entries = {}
+    local entries, locals = {}, {}
     for checksum, file in pairs(map) do
-        table.insert(entries, self:entryFor(file, checksum))
+        local entry = self:entryFor(file, checksum)
+        table.insert(entries, entry)
+        table.insert(locals, { key = norm(entry.title), entry = entry })
     end
+
+    for _, item in ipairs(Catalog:load() or {}) do
+        local key = norm(item.title)
+        local matched
+        for _, candidate in ipairs(locals) do
+            if not candidate.taken
+               and (candidate.key == key or candidate.key:find(key, 1, true)) then
+                candidate.taken = true
+                matched = candidate.entry
+                break
+            end
+        end
+        if matched then
+            matched.book_id = item.book_id
+            matched.cover_url = item.cover_url
+            matched.title = item.title  -- the catalogue name beats the filename
+            if matched.author == "" then matched.author = item.author end
+        else
+            table.insert(entries, {
+                title = item.title,
+                author = item.author,
+                book_id = item.book_id,
+                cover_url = item.cover_url,
+                download_url = item.download_url,
+                status = "new",
+                on_device = false,
+            })
+        end
+    end
+
     table.sort(entries, function(a, b)
         local ap = a.status == "reading" and 0 or 1
         local bp = b.status == "reading" and 0 or 1

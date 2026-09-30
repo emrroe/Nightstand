@@ -11,8 +11,10 @@ on.
 
 ## Status
 
-Early. The settings tree and the on-device index work; the three home layouts
-are being built.
+Layout A works against a real CWA server: the catalogue merges with the local
+folder, server-only books carry a download badge, and covers are fetched once
+and kept on disk. Layouts B and C are not built yet, and the download action
+itself is still to come.
 
 ## Layouts
 

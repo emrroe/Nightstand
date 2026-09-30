@@ -1,0 +1,151 @@
+--[[--
+The shelf as Calibre-Web-Automated sees it.
+
+CWA's OPDS root is a navigation feed; `/opds/books/letter/00` is the flat
+"All" acquisition feed, which is the only one worth fetching. The parsed
+result is written to disk so the home screen paints without a round trip.
+--]]--
+
+local DataStorage = require("datastorage")
+local LuaSettings = require("luasettings")
+local http = require("socket.http")
+local ltn12 = require("ltn12")
+local socket = require("socket")
+local socketutil = require("socketutil")
+local logger = require("logger")
+local util = require("util")
+local Settings = require("settings")
+
+local ALL_BOOKS = "/opds/books/letter/00"
+
+local Catalog = {
+    entries = nil,
+    fetched_at = nil,
+}
+
+local function storePath()
+    return DataStorage:getSettingsDir() .. "/nightstand_catalog.lua"
+end
+
+local function credentials()
+    local user, password = Settings:get("username"), Settings:get("password")
+    if user ~= "" and password ~= "" then return user, password end
+    -- Fall back to the CWA sync plugin's credentials rather than asking twice.
+    local cwa = G_reader_settings and G_reader_settings:readSetting("cwasync")
+    if cwa then return cwa.username, cwa.password end
+    return user, password
+end
+
+--- One HTTP GET against the configured server. Returns body or nil, err.
+function Catalog:get(path)
+    local server = Settings:get("server"):gsub("/+$", "")
+    if server == "" then return nil, "no server configured" end
+    local user, password = credentials()
+
+    local sink = {}
+    socketutil:set_timeout(10, 30)
+    local code, _headers, status = socket.skip(1, http.request{
+        url = server .. path,
+        method = "GET",
+        headers = { ["Accept-Encoding"] = "identity" },
+        sink = ltn12.sink.table(sink),
+        user = user,
+        password = password,
+    })
+    socketutil:reset_timeout()
+
+    if code ~= 200 then
+        return nil, tostring(status or code)
+    end
+    local body = table.concat(sink)
+    return body ~= "" and body or nil, body == "" and "empty response" or nil
+end
+
+-- KOReader's OPDS parser keeps only the last of any repeated element except
+-- entry/link, which loses every author after the first -- CWA lists the
+-- translator as a second author, so that is the one that survives. The five
+-- fields below are easier to read straight off the feed, and doing so drops
+-- the dependency on the OPDS plugin being enabled.
+
+local function decode(str)
+    if not str then return "" end
+    str = str:gsub("&#(%d+);", function(code)
+        return util.unicodeCodepointToUtf8(tonumber(code))
+    end)
+    return (str:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"')
+               :gsub("&apos;", "'"):gsub("&amp;", "&"))
+end
+
+local function linksIn(block)
+    local links = {}
+    for attrs in block:gmatch("<link([^>]*)>") do
+        local rel = attrs:match('rel="([^"]*)"')
+        local href = attrs:match('href="([^"]*)"')
+        if rel and href then links[rel] = href end
+    end
+    return links
+end
+
+local function authorsIn(block)
+    local names = {}
+    for author in block:gmatch("<author>(.-)</author>") do
+        local name = author:match("<name>(.-)</name>")
+        if name then table.insert(names, decode(name)) end
+    end
+    return table.concat(names, ", ")
+end
+
+--- Pull the flat book feed and keep the fields the home screen needs.
+function Catalog:refresh()
+    local body, err = self:get(ALL_BOOKS)
+    if not body then
+        logger.warn("Nightstand: catalogue fetch failed:", tostring(err))
+        return nil, err
+    end
+
+    local entries = {}
+    for block in body:gmatch("<entry>(.-)</entry>") do
+        local links = linksIn(block)
+        local download = links["http://opds-spec.org/acquisition"]
+        if download then
+            table.insert(entries, {
+                title = decode(block:match("<title>(.-)</title>")),
+                author = authorsIn(block),
+                updated = block:match("<updated>(.-)</updated>"),
+                cover_url = links["http://opds-spec.org/image"],
+                download_url = download,
+                -- /opds/download/<id>/epub/ -- the Calibre id is the useful part
+                book_id = tonumber(download:match("/opds/download/(%d+)/")),
+            })
+        end
+    end
+    if #entries == 0 then return nil, "the feed held no books" end
+
+    self.entries = entries
+    self.fetched_at = os.time()
+    self:save()
+    logger.info("Nightstand: catalogue holds", #entries, "books")
+    return entries
+end
+
+function Catalog:save()
+    local store = LuaSettings:open(storePath())
+    store:saveSetting("entries", self.entries)
+    store:saveSetting("fetched_at", self.fetched_at)
+    store:flush()
+end
+
+function Catalog:load()
+    if self.entries then return self.entries end
+    local store = LuaSettings:open(storePath())
+    self.entries = store:readSetting("entries")
+    self.fetched_at = store:readSetting("fetched_at")
+    return self.entries
+end
+
+function Catalog:count()
+    local entries = self:load()
+    return entries and #entries or 0
+end
+
+return Catalog

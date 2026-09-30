@@ -13,6 +13,9 @@ local MultiInputDialog = require("ui/widget/multiinputdialog")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Availability = require("availability")
+local Books = require("books")
+local Catalog = require("catalog")
+local CoverCache = require("covercache")
 local Settings = require("settings")
 local _ = require("gettext")
 local T = require("ffi/util").template
@@ -34,6 +37,39 @@ function Nightstand:open()
         return
     end
     UIManager:show(require("homescreen"):new{})
+end
+
+--- Pull the CWA catalogue, then fetch a cover for every book that is not
+--- already on the device. Deliberately synchronous: it only runs when asked.
+function Nightstand:refreshCatalogue(touchmenu_instance)
+    local working = InfoMessage:new{ text = _("Refreshing catalogue…") }
+    UIManager:show(working)
+    UIManager:forceRePaint()
+
+    local entries, err = Catalog:refresh()
+    if not entries then
+        UIManager:close(working)
+        UIManager:show(InfoMessage:new{
+            text = T(_("Could not reach the server.\n%1"), tostring(err)),
+        })
+        return
+    end
+
+    Availability:invalidate()
+    local fetched = 0
+    for _, entry in ipairs(Books:list(Settings:booksDir())) do
+        if not entry.on_device and not CoverCache:hasRemote(entry.book_id) then
+            if CoverCache:fetchRemote(entry.book_id, entry.cover_url) then
+                fetched = fetched + 1
+            end
+        end
+    end
+
+    UIManager:close(working)
+    UIManager:show(InfoMessage:new{
+        text = T(_("%1 books in the catalogue.\n%2 covers fetched."), #entries, fetched),
+    })
+    if touchmenu_instance then touchmenu_instance:updateItems() end
 end
 
 function Nightstand:editServer()
@@ -133,6 +169,17 @@ function Nightstand:addToMainMenu(menu_items)
                 end,
                 keep_menu_open = true,
                 callback = function() self:editServer() end,
+            },
+            {
+                text_func = function()
+                    local n = Catalog:count()
+                    return n > 0 and T(_("Refresh catalogue (%1 books)"), n)
+                                  or _("Refresh catalogue")
+                end,
+                keep_menu_open = true,
+                callback = function(touchmenu_instance)
+                    self:refreshCatalogue(touchmenu_instance)
+                end,
             },
             {
                 text = _("Refresh catalogue when the device wakes"),
