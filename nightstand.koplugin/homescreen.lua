@@ -41,11 +41,12 @@ local GREY = Blitbuffer.COLOR_GRAY
 
 -- Fractions of screen height, from the measured design.
 local BAND = {
-    status = 0.034,
-    hero   = 0.286,
-    head   = 0.045,
-    pager  = 0.026,
-    tabs   = 0.044,
+    status   = 0.034,
+    hero     = 0.238,
+    head     = 0.045,
+    head_gap = 0.024,  -- space between the header row and the first cover
+    pager    = 0.026,
+    tabs     = 0.044,
 }
 
 -- Order matters: it is the order the segments appear in.
@@ -149,7 +150,7 @@ function HomeScreen:build()
         heights[key] = math.floor(h * fraction)
     end
     heights.grid = h - heights.status - heights.hero - heights.head
-                     - heights.pager - heights.tabs
+                     - heights.head_gap - heights.pager - heights.tabs
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -168,12 +169,19 @@ function HomeScreen:build()
     add(rule(w), Size.line.thin)
     y = y - Size.line.thin
 
+    -- Each band needs the y it starts at, so read it before add() moves on.
     local head_y = y
     add(self:headBand(heights.head, head_y), heights.head)
-    add(self:gridBand(heights.grid, y + heights.head), heights.grid)
-    y = y + 0 -- gridBand registered its own zones
-    add(self:pagerBand(heights.pager, y), heights.pager)
-    add(self:tabsBand(heights.tabs, y + heights.pager), heights.tabs)
+    add(VerticalSpan:new{ width = heights.head_gap }, heights.head_gap)
+
+    local grid_y = y
+    add(self:gridBand(heights.grid, grid_y), heights.grid)
+
+    local pager_y = y
+    add(self:pagerBand(heights.pager, pager_y), heights.pager)
+
+    local tabs_y = y
+    add(self:tabsBand(heights.tabs, tabs_y), heights.tabs)
 
     self[1] = FrameContainer:new{
         width = w,
@@ -218,7 +226,7 @@ function HomeScreen:heroBand(h, band_y)
                     })
     end
 
-    local cover_h = inner_h - math.floor(h * 0.16)
+    local cover_h = inner_h
     local cover_w = math.floor(cover_h / 1.5)
     local tile = self:coverTile(entry, cover_w, cover_h, true)
     local meta_w = self.screen_w - 2 * self.gutter - cover_w - self.gutter
