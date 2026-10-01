@@ -88,6 +88,8 @@ function Books:list(books_dir)
         if matched then
             matched.book_id = item.book_id
             matched.cover_url = item.cover_url
+            matched.summary = item.summary
+            matched.added = item.updated
             matched.title = item.title  -- the catalogue name beats the filename
             if matched.author == "" then matched.author = item.author end
         else
@@ -97,6 +99,8 @@ function Books:list(books_dir)
                 book_id = item.book_id,
                 cover_url = item.cover_url,
                 download_url = item.download_url,
+                summary = item.summary,
+                added = item.updated,
                 status = "new",
                 on_device = false,
             })
@@ -130,6 +134,31 @@ function Books:progressTag(entry)
     if entry.status == "complete" then return "Finished" end
     if entry.status == "new" or not entry.percent then return "New" end
     return string.format("%d%%", math.floor(entry.percent * 100 + 0.5))
+end
+
+--- Shelves for the stacked home layout. Only non-empty ones are drawn, so a
+--- quiet library does not leave a labelled gap on screen.
+function Books:shelves(entries, skip)
+    local function pick(test, sort)
+        local out = {}
+        for _, entry in ipairs(entries) do
+            if entry ~= skip and test(entry) then table.insert(out, entry) end
+        end
+        if sort then table.sort(out, sort) end
+        return out
+    end
+    local by_added = function(a, b) return (a.added or "") > (b.added or "") end
+
+    return {
+        { label = "Reading now",
+          books = pick(function(e) return e.status == "reading" end) },
+        { label = "Recently added",
+          books = pick(function(e) return e.added ~= nil end, by_added) },
+        { label = "On this device",
+          books = pick(function(e) return e.on_device end, by_added) },
+        { label = "Not read yet",
+          books = pick(function(e) return e.status == "new" end, by_added) },
+    }
 end
 
 return Books

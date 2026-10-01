@@ -7,6 +7,7 @@ cover at the thumbnail URL too -- book 2's is 1.4 MB, so refetching per paint
 is not an option.
 --]]--
 
+local Blitbuffer = require("ffi/blitbuffer")
 local BookInfo = require("apps/filemanager/filemanagerbookinfo")
 local DataStorage = require("datastorage")
 local RenderImage = require("ui/renderimage")
@@ -51,6 +52,27 @@ function CoverCache:fetchRemote(book_id, cover_url)
     return true
 end
 
+--- Whites out the pixels outside a rounded rectangle. Done once per cached
+--- thumbnail, so it costs nothing at paint time.
+local function roundCorners(bb, radius)
+    if not bb or not radius or radius < 2 then return bb end
+    local w, h = bb:getWidth(), bb:getHeight()
+    local white = Blitbuffer.COLOR_WHITE
+    local limit = radius * radius
+    for dy = 0, radius - 1 do
+        for dx = 0, radius - 1 do
+            local ox, oy = radius - dx - 0.5, radius - dy - 0.5
+            if ox * ox + oy * oy > limit then
+                bb:setPixel(dx, dy, white)
+                bb:setPixel(w - 1 - dx, dy, white)
+                bb:setPixel(dx, h - 1 - dy, white)
+                bb:setPixel(w - 1 - dx, h - 1 - dy, white)
+            end
+        end
+    end
+    return bb
+end
+
 local function scaled(key, cache, loader, width, height)
     local slot = string.format("%s|%dx%d", key, width, height)
     if cache.cache[slot] then return cache.cache[slot] end
@@ -73,7 +95,8 @@ function CoverCache:get(entry, width, height)
         return scaled(entry.file, self, function()
             local ok, bb = pcall(BookInfo.getCoverImage, BookInfo, nil, entry.file)
             if not ok or not bb then return nil end
-            return RenderImage:scaleBlitBuffer(bb, width, height, true)
+            return roundCorners(RenderImage:scaleBlitBuffer(bb, width, height, true),
+                                math.floor(width * 0.045))
         end, width, height)
     end
 
@@ -83,7 +106,8 @@ function CoverCache:get(entry, width, height)
                 return RenderImage:renderImageFile(self:coverFile(entry.book_id),
                                                    false, width, height)
             end)
-            return ok and bb or nil
+            if not ok or not bb then return nil end
+            return roundCorners(bb, math.floor(width * 0.045))
         end, width, height)
     end
 

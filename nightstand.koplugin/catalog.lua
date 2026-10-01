@@ -90,6 +90,16 @@ local function linksIn(block)
     return links
 end
 
+--- CWA puts the publisher blurb in <summary>, HTML and all.
+local function summaryIn(block)
+    local raw = block:match("<summary>(.-)</summary>")
+    if not raw then return nil end
+    local plain = decode(raw):gsub("&lt;.-&gt;", " "):gsub("<.->", " ")
+    plain = plain:gsub("%s+", " "):gsub("^%s+", ""):gsub("%s+$", "")
+    if plain == "" then return nil end
+    return plain
+end
+
 local function authorsIn(block)
     local names = {}
     for author in block:gmatch("<author>(.-)</author>") do
@@ -142,6 +152,7 @@ function Catalog:refresh()
         if download then
             table.insert(entries, {
                 title = decode(block:match("<title>(.-)</title>")),
+                summary = summaryIn(block),
                 author = authorsIn(block),
                 updated = block:match("<updated>(.-)</updated>"),
                 cover_url = links["http://opds-spec.org/image"],

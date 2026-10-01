@@ -7,7 +7,6 @@ not on this device are marked; everything else is a normal KOReader file.
 @module koplugin.Nightstand
 --]]--
 
-local DoubleSpinWidget = require("ui/widget/doublespinwidget")
 local InfoMessage = require("ui/widget/infomessage")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
 local UIManager = require("ui/uimanager")
@@ -137,23 +136,6 @@ function Nightstand:editServer()
     dialog:onShowKeyboard()
 end
 
-function Nightstand:editGrid(touchmenu_instance)
-    UIManager:show(DoubleSpinWidget:new{
-        title_text = _("Covers per page"),
-        left_text = _("Columns"),
-        right_text = _("Rows"),
-        left_value = Settings:get("grid_cols"),
-        right_value = Settings:get("grid_rows"),
-        left_min = 2, left_max = 8, left_default = Settings.DEFAULTS.grid_cols,
-        right_min = 1, right_max = 6, right_default = Settings.DEFAULTS.grid_rows,
-        callback = function(cols, rows)
-            Settings:set("grid_cols", cols)
-            Settings:set("grid_rows", rows)
-            if touchmenu_instance then touchmenu_instance:updateItems() end
-        end,
-    })
-end
-
 function Nightstand:layoutMenu()
     local items = {}
     for _index, layout in ipairs(Settings.LAYOUTS) do
@@ -223,23 +205,6 @@ function Nightstand:addToMainMenu(menu_items)
                     return T(_("Home layout: %1"), Settings:layoutName())
                 end,
                 sub_item_table_func = function() return self:layoutMenu() end,
-            },
-            {
-                text_func = function()
-                    return T(_("Covers per page: %1 × %2"),
-                             Settings:get("grid_cols"), Settings:get("grid_rows"))
-                end,
-                keep_menu_open = true,
-                callback = function(touchmenu_instance)
-                    self:editGrid(touchmenu_instance)
-                end,
-                enabled_func = function() return Settings:get("layout") ~= "list" end,
-            },
-            {
-                text = _("Captions under covers"),
-                checked_func = function() return Settings:get("captions") end,
-                callback = function() Settings:toggle("captions") end,
-                enabled_func = function() return Settings:get("layout") ~= "list" end,
             },
             {
                 text = _("Show time remaining"),

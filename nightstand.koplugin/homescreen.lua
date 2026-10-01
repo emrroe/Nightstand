@@ -35,6 +35,9 @@ local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
+-- Book titles get a serif; the chrome stays sans and the data stays mono.
+local SERIF = "NotoSerif-Bold.ttf"
+
 local BLACK = Blitbuffer.COLOR_BLACK
 local WHITE = Blitbuffer.COLOR_WHITE
 local GREY = Blitbuffer.COLOR_GRAY
@@ -116,11 +119,27 @@ end
 --- because build() on its own would paint a stale page count.
 function HomeScreen:recompute()
     self.shown = self:visibleEntries()
-    self.cols = Settings:get("grid_cols")
-    self.rows = Settings:get("grid_rows")
+    local area_w = self.screen_w - 2 * self.gutter
+    local grid_h = self.screen_h * (1 - BAND.status - BAND.hero - BAND.head
+                                      - BAND.pager - BAND.tabs)
+    self.row_gap = Screen:scaleBySize(10)
+    self.cols, self.cover_w, self.gap = self:metrics(area_w, 163)
+    local cell_h = math.floor(self.cover_w * 1.5) + self:captionHeight()
+    self.rows = math.max(1, math.floor((grid_h + self.row_gap) / (cell_h + self.row_gap)))
     self.per_page = self.cols * self.rows
     self.pages = math.max(1, math.ceil(#self.shown / self.per_page))
     if self.page > self.pages then self.page = self.pages end
+end
+
+--- How many covers fit across, and how wide each is.
+--- Driven by a target cell width in device-independent units, so a 1404 px
+--- tablet lands on four and an 824 px phone on three; the covers are then
+--- sized to fill the row exactly, leaving only a thin gap between them.
+function HomeScreen:metrics(area_w, target_dp)
+    local gap = Screen:scaleBySize(8)
+    local cols = math.max(2, math.floor(area_w / Screen:scaleBySize(target_dp) + 0.5))
+    local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
+    return cols, cover_w, gap
 end
 
 function HomeScreen:visibleEntries()
@@ -145,6 +164,116 @@ function HomeScreen:zone(x, y, w, h, callback)
 end
 
 function HomeScreen:build()
+    if Settings:get("layout") == "shelf" then
+        return self:buildShelf()
+    end
+    return self:buildGrid()
+end
+
+--- Layout B: a tall continue card over labelled shelves of bare covers.
+function HomeScreen:buildShelf()
+    local w, h = self.screen_w, self.screen_h
+    local status_h = math.floor(h * 0.034)
+    local tabs_h = math.floor(h * 0.044)
+    local hero_h = math.floor(h * 0.30)
+    local strips_h = h - status_h - hero_h - tabs_h
+
+    local shelves = {}
+    for _, shelf in ipairs(Books:shelves(self.entries, self.current)) do
+        if #shelf.books > 0 then table.insert(shelves, shelf) end
+    end
+
+    -- How many shelves fit is a consequence of the cover size, which the
+    -- width decides; the height only says how many of them there is room for.
+    local area_w = w - 2 * self.gutter
+    local _cols, cover_w = self:metrics(area_w, 120)
+    local strip_h = self:stripHeight(cover_w)
+    local count = math.max(1, math.min(#shelves, math.floor(strips_h / strip_h)))
+    local each = math.floor(strips_h / count)
+
+    local y = 0
+    local stack = VerticalGroup:new{ align = "left" }
+    local function add(widget, height)
+        table.insert(stack, widget)
+        y = y + height
+    end
+
+    add(self:statusBand(status_h), status_h)
+    add(rule(w), Size.line.thin)
+    y = y - Size.line.thin
+
+    local hero_y = y
+    add(self:heroBand(hero_h, hero_y, true), hero_h)
+    add(rule(w), Size.line.thin)
+    y = y - Size.line.thin
+
+    for index = 1, count do
+        local strip_y = y
+        add(self:stripBand(shelves[index], each, strip_y), each)
+    end
+
+    local tabs_y = y
+    add(self:tabsBand(tabs_h, tabs_y), tabs_h)
+
+    self[1] = FrameContainer:new{
+        width = w, height = h, background = WHITE,
+        bordersize = 0, padding = 0, margin = 0,
+        stack,
+    }
+    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+end
+
+function HomeScreen:labelHeight()
+    local probe = text("Ag", "infont", 11, GREY)
+    local height = probe:getSize().h
+    probe:free()
+    return height
+end
+
+function HomeScreen:stripHeight(cover_w)
+    return self:labelHeight() + Size.padding.default
+             + math.floor(cover_w * 1.5) + Size.padding.large
+end
+
+function HomeScreen:stripBand(shelf, h, band_y)
+    local w = self.screen_w
+    local area_w = w - 2 * self.gutter
+    local cols, cover_w, gap = self:metrics(area_w, 120)
+    local cover_h = math.floor(cover_w * 1.5)
+    local label_h = self:labelHeight()
+
+    local header = HorizontalGroup:new{
+        align = "bottom",
+        text(shelf.label:upper(), "infont", 11, GREY),
+        hspan(Size.padding.default),
+        text(T("(%1)", #shelf.books), "infont", 10, GREY),
+    }
+
+    local row = HorizontalGroup:new{ align = "top" }
+    local content_h = label_h + Size.padding.default + cover_h
+    local top = band_y + math.floor((h - content_h) / 2)
+    for index = 1, cols do
+        local entry = shelf.books[index]
+        if index > 1 then table.insert(row, hspan(gap)) end
+        if entry then
+            table.insert(row, self:coverTile(entry, cover_w, cover_h, false, true))
+            self:zone(self.gutter + (index - 1) * (cover_w + gap),
+                      top + label_h + Size.padding.default,
+                      cover_w, cover_h,
+                      function() self:openBook(entry) end)
+        else
+            table.insert(row, hspan(cover_w))
+        end
+    end
+
+    local inner = VerticalGroup:new{ align = "left" }
+    table.insert(inner, header)
+    table.insert(inner, VerticalSpan:new{ width = Size.padding.default })
+    table.insert(inner, row)
+    return band(w, h, self.gutter, inner)
+end
+
+function HomeScreen:buildGrid()
     local w, h = self.screen_w, self.screen_h
     local heights = {}
     for key, fraction in pairs(BAND) do
@@ -211,7 +340,7 @@ function HomeScreen:statusBand(h)
     }
 end
 
-function HomeScreen:heroBand(h, band_y)
+function HomeScreen:heroBand(h, band_y, with_blurb)
     local entry = self.current
     local pad = math.floor(h * 0.09)
     local inner_h = h - 2 * pad
@@ -237,13 +366,21 @@ function HomeScreen:heroBand(h, band_y)
                             "infont", 11, GREY))
     table.insert(meta, VerticalSpan:new{ width = Size.padding.small })
     table.insert(meta, TextBoxWidget:new{
-        text = entry.title, face = Font:getFace("tfont", 22),
+        text = entry.title, face = Font:getFace(SERIF, 22),
         width = meta_w, alignment = "left",
     })
     if entry.author and entry.author ~= "" then
         table.insert(meta, text(entry.author, "cfont", 14, GREY, meta_w))
     end
     table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
+    if with_blurb and entry.summary then
+        table.insert(meta, TextBoxWidget:new{
+            text = entry.summary, face = Font:getFace("cfont", 13),
+            width = meta_w, alignment = "left", fgcolor = GREY,
+            height = Screen:scaleBySize(34),
+        })
+        table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
+    end
     if self.fresh then
         table.insert(meta, text(_("Not started"), "infont", 15, GREY))
     else
@@ -332,23 +469,11 @@ end
 
 function HomeScreen:gridBand(h, band_y)
     local w = self.screen_w
-    local row_gap = math.floor(w * 0.018)
-    local area_w = w - 2 * self.gutter
+    local row_gap = self.row_gap
     local caption_h = self:captionHeight()
-    local cell_h = math.floor((h - (self.rows - 1) * row_gap) / self.rows)
-
-    -- Whichever of width and height binds first sets the cover size; any
-    -- width left over is shared out between the columns so the row still
-    -- reaches both margins.
-    local by_width = math.floor((area_w - (self.cols - 1) * row_gap) / self.cols)
-    local by_height = math.floor((cell_h - caption_h) / 1.5)
-    local cover_w = math.min(by_width, by_height)
+    local cover_w, gap = self.cover_w, self.gap
     local cover_h = math.floor(cover_w * 1.5)
-
-    local gap = row_gap
-    if self.cols > 1 then
-        gap = math.floor((area_w - self.cols * cover_w) / (self.cols - 1))
-    end
+    local cell_h = cover_h + caption_h
 
     local grid = VerticalGroup:new{ align = "left" }
     local first = (self.page - 1) * self.per_page + 1
@@ -362,7 +487,7 @@ function HomeScreen:gridBand(h, band_y)
             if entry then
                 local cell = VerticalGroup:new{ align = "left" }
                 table.insert(cell, self:coverTile(entry, cover_w, cover_h))
-                table.insert(cell, text(entry.title, "cfont", 12, BLACK, cover_w))
+                table.insert(cell, text(entry.title, SERIF, 12, BLACK, cover_w))
                 table.insert(cell, text(Books:progressTag(entry), "infont", 10, GREY, cover_w))
                 table.insert(line, cell)
 
@@ -420,7 +545,7 @@ end
 
 -- a cover, with its two corner marks ---------------------------------------
 
-function HomeScreen:coverTile(entry, w, h, no_tag)
+function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
     local group = OverlapGroup:new{
         dimen = Geom:new{ w = w, h = h },
         allow_mirroring = false,
@@ -435,8 +560,9 @@ function HomeScreen:coverTile(entry, w, h, no_tag)
     end
 
     local pad = math.max(2, math.floor(w * 0.04))
-    if not no_tag then
-        local tag = Books:progressTag(entry)
+    local tag = not no_tag and Books:progressTag(entry) or nil
+    if tag == "New" and hide_new then tag = nil end
+    if tag then
         local solid = tag ~= "New" and tag ~= "Finished"
         local badge = FrameContainer:new{
             background = solid and BLACK or WHITE,
@@ -475,7 +601,7 @@ function HomeScreen:placeholderCover(entry, w, h)
         CenterContainer:new{
             dimen = Geom:new{ w = inner_w, h = h - 2 * border - 2 * pad },
             TextBoxWidget:new{
-                text = entry.title, face = Font:getFace("tfont", 13),
+                text = entry.title, face = Font:getFace(SERIF, 13),
                 width = inner_w, alignment = "center",
             },
         },

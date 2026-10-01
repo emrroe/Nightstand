@@ -6,13 +6,12 @@ local Settings = {}
 -- Layout ids are stable: they are written to disk and referenced by the
 -- layout modules, so renaming one breaks existing installs.
 Settings.LAYOUTS = {
-    { id = "hero_grid", name = "Hero and grid" },
     { id = "shelf",     name = "Shelf stack" },
-    { id = "list",      name = "List first" },
+    { id = "hero_grid", name = "Hero and grid" },
 }
 
 Settings.DEFAULTS = {
-    layout = "hero_grid",
+    layout = "shelf",
     replace_file_browser = true,
     server = "",
     username = "",
