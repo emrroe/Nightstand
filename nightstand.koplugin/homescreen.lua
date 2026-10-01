@@ -58,6 +58,15 @@ local BAND = {
     tabs   = 0.044,
 }
 
+-- The footer tabs, in the order they appear.
+local TABS = {
+    { id = "home",     label = "HOME" },
+    { id = "library",  label = "LIBRARY" },
+    { id = "series",   label = "SERIES" },
+    { id = "authors",  label = "AUTHORS" },
+    { id = "settings", label = "SETTINGS" },
+}
+
 -- Order matters: it is the order the segments appear in.
 local FILTERS = {
     { id = "all",     label = "All" },
@@ -626,27 +635,26 @@ function HomeScreen:pagerBand(h, band_y)
 end
 
 function HomeScreen:tabsBand(h, band_y)
-    local labels = { _("HOME"), _("LIBRARY"), _("SERIES"), _("AUTHORS"), _("SETTINGS") }
-    local tab_w = math.floor(self.screen_w / #labels)
-    local row = HorizontalGroup:new{ align = "top" }
-    table.insert(row, rule(self.screen_w))
-
+    local tab_w = math.floor(self.screen_w / #TABS)
+    local marker_h = math.floor(h * 0.08)
     local strip = HorizontalGroup:new{ align = "top" }
-    for i, label in ipairs(labels) do
-        local active = i == 1
+
+    for index, tab in ipairs(TABS) do
+        local active = tab.id == "home"
         local cell = VerticalGroup:new{ align = "center" }
         if active then
             table.insert(cell, LineWidget:new{
                 background = BLACK,
-                dimen = Geom:new{ w = tab_w, h = math.floor(h * 0.08) },
+                dimen = Geom:new{ w = tab_w, h = marker_h },
             })
         end
         table.insert(cell, CenterContainer:new{
-            dimen = Geom:new{ w = tab_w, h = h - math.floor(h * 0.08) },
-            text(label, "infont", 11, active and BLACK or GREY),
+            dimen = Geom:new{ w = tab_w, h = h - marker_h },
+            text(_(tab.label), "infont", 11, active and BLACK or GREY),
         })
         table.insert(strip, cell)
-        self:zone((i - 1) * tab_w, band_y, tab_w, h, function() self:onTab(i) end)
+        local id = tab.id
+        self:zone((index - 1) * tab_w, band_y, tab_w, h, function() self:onTab(id) end)
     end
 
     return VerticalGroup:new{ align = "left", rule(self.screen_w), strip }
@@ -766,8 +774,12 @@ function HomeScreen:turnPage(delta)
     self:refresh()
 end
 
-function HomeScreen:onTab(index)
-    if index == 1 then return end
+function HomeScreen:onTab(id)
+    if id == "home" then return end
+    if id == "settings" then
+        if self.plugin then self.plugin:openSettings() end
+        return
+    end
     UIManager:show(require("ui/widget/infomessage"):new{
         text = _("That tab is next on the list."),
         timeout = 2,
