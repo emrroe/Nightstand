@@ -43,6 +43,12 @@ written up separately; the short version is that availability lives in one
 corner of the cover and progress in another, nothing depends on colour, and
 every screen is paged rather than scrolled.
 
+## Credits
+
+The download badge uses `cloud-arrow-down` from
+[Font Awesome Free](https://fontawesome.com) 6.7.2, Copyright 2024 Fonticons,
+Inc., licensed CC BY 4.0. See `nightstand.koplugin/resources/NOTICE.md`.
+
 ## Requires
 
 KOReader 2026.07 or later.

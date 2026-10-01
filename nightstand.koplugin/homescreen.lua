@@ -38,6 +38,11 @@ local T = require("ffi/util").template
 -- Book titles get a serif; the chrome stays sans and the data stays mono.
 local SERIF = "NotoSerif-Bold.ttf"
 
+-- Resolved from this file so the plugin folder can live anywhere.
+local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]+$")
+local CLOUD_ICON = PLUGIN_DIR .. "/resources/cloud-arrow-down.svg"
+local CLOUD_RATIO = 640 / 512  -- the icon's own viewBox
+
 local BLACK = Blitbuffer.COLOR_BLACK
 local WHITE = Blitbuffer.COLOR_WHITE
 local GREY = Blitbuffer.COLOR_GRAY
@@ -682,24 +687,27 @@ function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
     end
 
     if not entry.on_device then
-        -- A square inner box and a radius of half the outer height, so the
-        -- badge is a circle rather than a rounded pill around the glyph.
-        local inner = math.floor(w * 0.15)
-        local disc = FrameContainer:new{
+        -- The icon is wider than it is tall, so the badge is a short pill
+        -- rather than a circle: a circle at this size would squeeze it.
+        local icon_h = math.max(Screen:scaleBySize(9), math.floor(w * 0.085))
+        local icon_w = math.floor(icon_h * CLOUD_RATIO)
+        local badge = FrameContainer:new{
             background = WHITE,
             color = BLACK,
             bordersize = Size.border.thin,
             margin = 0,
-            padding = 0,
-            CenterContainer:new{
-                dimen = Geom:new{ w = inner, h = inner },
-                text("\u{2193}", "infont", 12, BLACK),
+            padding = Size.padding.tiny,
+            ImageWidget:new{
+                file = CLOUD_ICON,
+                width = icon_w, height = icon_h,
+                scale_factor = 0,  -- keep the icon's aspect
+                alpha = true,
             },
         }
-        local size = disc:getSize()
-        disc.radius = math.floor(size.h / 2)
-        disc.overlap_offset = { w - size.w - pad, h - size.h - pad }
-        table.insert(group, disc)
+        local size = badge:getSize()
+        badge.radius = math.floor(size.h / 2)
+        badge.overlap_offset = { w - size.w - pad, h - size.h - pad }
+        table.insert(group, badge)
     end
 
     return group
