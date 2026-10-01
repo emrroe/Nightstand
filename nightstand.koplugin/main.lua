@@ -20,8 +20,6 @@ local Settings = require("settings")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
--- Used both to label the menu entry and to find it again when the Settings
--- tab opens the menu, so the two can never drift apart.
 local MENU_TEXT = _("Nightstand")
 
 local Nightstand = WidgetContainer:extend{
@@ -44,27 +42,15 @@ function Nightstand:init()
     end
 end
 
---- KOReader's own menu, opened already inside Nightstand's section. The tab
---- strip across the top and the back chevron both stay live, so every other
---- KOReader setting is still one tap away.
+--- Nightstand's own settings screen.
 function Nightstand:openSettings()
+    UIManager:show(require("settingsscreen"):new{ plugin = self })
+end
+
+--- Everything else: KOReader's own menu, at its usual place.
+function Nightstand:openKoreaderMenu()
     local menu = self.ui and self.ui.menu
-    if not menu then return end
-    menu:onShowMenu()
-    local touch_menu = menu.menu_container and menu.menu_container[1]
-    -- Devices without touch get a plain Menu, which has no tabs to switch.
-    if not (touch_menu and touch_menu.switchMenuTab and touch_menu.tab_item_table) then
-        return
-    end
-    for tab_index, tab in ipairs(touch_menu.tab_item_table) do
-        for _, item in ipairs(tab) do
-            if item.text == MENU_TEXT then
-                touch_menu:switchMenuTab(tab_index)
-                touch_menu:onMenuSelect(item)
-                return
-            end
-        end
-    end
+    if menu then menu:onShowMenu() end
 end
 
 function Nightstand:openAsHome()

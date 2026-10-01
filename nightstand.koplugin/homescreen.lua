@@ -29,6 +29,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Books = require("books")
+local TabBar = require("tabbar")
 local CoverCache = require("covercache")
 local Settings = require("settings")
 local _ = require("gettext")
@@ -56,15 +57,6 @@ local BAND = {
     head   = 0.069,
     pager  = 0.026,
     tabs   = 0.044,
-}
-
--- The footer tabs, in the order they appear.
-local TABS = {
-    { id = "home",     label = "HOME" },
-    { id = "library",  label = "LIBRARY" },
-    { id = "series",   label = "SERIES" },
-    { id = "authors",  label = "AUTHORS" },
-    { id = "settings", label = "SETTINGS" },
 }
 
 -- Order matters: it is the order the segments appear in.
@@ -238,11 +230,11 @@ end
 --- The tab bar is chrome, not content: it keeps one height whatever the
 --- orientation, with a fixed margin above it.
 function HomeScreen:tabsHeight()
-    return Screen:scaleBySize(40)
+    return TabBar.height()
 end
 
 function HomeScreen:tabsMargin()
-    return Screen:scaleBySize(16)
+    return TabBar.margin()
 end
 
 function HomeScreen:labelHeight()
@@ -635,29 +627,9 @@ function HomeScreen:pagerBand(h, band_y)
 end
 
 function HomeScreen:tabsBand(h, band_y)
-    local tab_w = math.floor(self.screen_w / #TABS)
-    local marker_h = math.floor(h * 0.08)
-    local strip = HorizontalGroup:new{ align = "top" }
-
-    for index, tab in ipairs(TABS) do
-        local active = tab.id == "home"
-        local cell = VerticalGroup:new{ align = "center" }
-        if active then
-            table.insert(cell, LineWidget:new{
-                background = BLACK,
-                dimen = Geom:new{ w = tab_w, h = marker_h },
-            })
-        end
-        table.insert(cell, CenterContainer:new{
-            dimen = Geom:new{ w = tab_w, h = h - marker_h },
-            text(_(tab.label), "infont", 11, active and BLACK or GREY),
-        })
-        table.insert(strip, cell)
-        local id = tab.id
-        self:zone((index - 1) * tab_w, band_y, tab_w, h, function() self:onTab(id) end)
-    end
-
-    return VerticalGroup:new{ align = "left", rule(self.screen_w), strip }
+    return TabBar.build(self.screen_w, h, band_y, "home",
+                        function(...) self:zone(...) end,
+                        function(id) self:onTab(id) end)
 end
 
 -- a cover, with its two corner marks ---------------------------------------
