@@ -41,7 +41,7 @@ local SERIF = "NotoSerif-Bold.ttf"
 -- Resolved from this file so the plugin folder can live anywhere.
 local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]+$")
 local CLOUD_ICON = PLUGIN_DIR .. "/resources/cloud-arrow-down.svg"
-local CLOUD_RATIO = 640 / 512  -- the icon's own viewBox
+local CLOUD_RATIO = (640 + 64) / (512 + 64)  -- viewBox, halo included
 
 local BLACK = Blitbuffer.COLOR_BLACK
 local WHITE = Blitbuffer.COLOR_WHITE
@@ -687,25 +687,16 @@ function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
     end
 
     if not entry.on_device then
-        -- The icon is wider than it is tall, so the badge is a short pill
-        -- rather than a circle: a circle at this size would squeeze it.
-        local icon_h = math.max(Screen:scaleBySize(9), math.floor(w * 0.085))
-        local icon_w = math.floor(icon_h * CLOUD_RATIO)
-        local badge = FrameContainer:new{
-            background = WHITE,
-            color = BLACK,
-            bordersize = Size.border.thin,
-            margin = 0,
-            padding = Size.padding.tiny,
-            ImageWidget:new{
-                file = CLOUD_ICON,
-                width = icon_w, height = icon_h,
-                scale_factor = 0,  -- keep the icon's aspect
-                alpha = true,
-            },
+        -- No backdrop: the icon carries its own white halo, drawn into the
+        -- SVG, so it stays readable over dark and light cover art alike.
+        local icon_h = math.max(Screen:scaleBySize(10), math.floor(w * 0.10))
+        local badge = ImageWidget:new{
+            file = CLOUD_ICON,
+            width = math.floor(icon_h * CLOUD_RATIO), height = icon_h,
+            scale_factor = 0,  -- keep the icon's aspect
+            alpha = true,
         }
         local size = badge:getSize()
-        badge.radius = math.floor(size.h / 2)
         badge.overlap_offset = { w - size.w - pad, h - size.h - pad }
         table.insert(group, badge)
     end

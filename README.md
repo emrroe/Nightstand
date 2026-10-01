@@ -45,9 +45,10 @@ every screen is paged rather than scrolled.
 
 ## Credits
 
-The download badge uses `cloud-arrow-down` from
+The download badge is derived from `cloud-arrow-down` in
 [Font Awesome Free](https://fontawesome.com) 6.7.2, Copyright 2024 Fonticons,
-Inc., licensed CC BY 4.0. See `nightstand.koplugin/resources/NOTICE.md`.
+Inc., licensed CC BY 4.0 and modified to carry a white outline. See
+`nightstand.koplugin/resources/NOTICE.md`.
 
 ## Requires
 
