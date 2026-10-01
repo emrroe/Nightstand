@@ -175,21 +175,23 @@ function HomeScreen:buildShelf()
     local w, h = self.screen_w, self.screen_h
     local status_h = math.floor(h * 0.034)
     local tabs_h = math.floor(h * 0.044)
-    local hero_h = math.floor(h * 0.30)
-    local strips_h = h - status_h - hero_h - tabs_h
 
     local shelves = {}
     for _, shelf in ipairs(Books:shelves(self.entries, self.current)) do
         if #shelf.books > 0 then table.insert(shelves, shelf) end
     end
 
-    -- How many shelves fit is a consequence of the cover size, which the
-    -- width decides; the height only says how many of them there is room for.
-    local area_w = w - 2 * self.gutter
-    local _cols, cover_w = self:metrics(area_w, 120)
-    local strip_h = self:stripHeight(cover_w)
-    local count = math.max(1, math.min(#shelves, math.floor(strips_h / strip_h)))
-    local each = math.floor(strips_h / count)
+    local count = math.max(1, math.min(#shelves, self:shelfCount()))
+    -- Size the covers against a nominal hero, then hand the shelves exactly
+    -- the height they turned out to need and give the slack to the hero. A
+    -- 2:3 cover rarely divides the space evenly, and dead air under the last
+    -- shelf is worse than a taller continue card.
+    local nominal = h - status_h - tabs_h - math.floor(h * 0.30)
+    local _cols, cover_w = self:stripMetrics(nominal, count)
+    local each = self:labelHeight() + Size.padding.default
+                   + math.floor(cover_w * 1.5) + Size.padding.large
+    local hero_h = h - status_h - tabs_h - count * each
+    self.strip_cover_w = cover_w
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -230,15 +232,32 @@ function HomeScreen:labelHeight()
     return height
 end
 
-function HomeScreen:stripHeight(cover_w)
-    return self:labelHeight() + Size.padding.default
-             + math.floor(cover_w * 1.5) + Size.padding.large
+function HomeScreen:shelfCount()
+    return self.screen_w >= self.screen_h and 1 or 2
+end
+
+--- Cover size for the shelves: the height each shelf gets decides how tall a
+--- cover may be, the width then decides how many fit, and the covers are
+--- widened back out so the row ends flush with both margins.
+function HomeScreen:stripMetrics(strips_h, count)
+    local area_w = self.screen_w - 2 * self.gutter
+    local gap = Screen:scaleBySize(8)
+    local chrome = self:labelHeight() + Size.padding.default + Size.padding.large
+    local strip_h = math.floor(strips_h / count)
+    local cover_h_max = strip_h - chrome
+    local widest = math.max(Screen:scaleBySize(60), math.floor(cover_h_max / 1.5))
+    -- round the column count up, so filling the width can only shrink a cover
+    local cols = math.max(2, math.ceil((area_w + gap) / (widest + gap)))
+    local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
+    return cols, cover_w, gap, strip_h
 end
 
 function HomeScreen:stripBand(shelf, h, band_y)
     local w = self.screen_w
     local area_w = w - 2 * self.gutter
-    local cols, cover_w, gap = self:metrics(area_w, 120)
+    local gap = Screen:scaleBySize(8)
+    local cover_w = self.strip_cover_w
+    local cols = math.floor((area_w + gap) / (cover_w + gap))
     local cover_h = math.floor(cover_w * 1.5)
     local label_h = self:labelHeight()
 
@@ -362,8 +381,6 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
 
     local percent = entry.percent or 0
     local meta = VerticalGroup:new{ align = "left" }
-    table.insert(meta, text(self.fresh and _("START READING") or _("CONTINUE"),
-                            "infont", 11, GREY))
     table.insert(meta, VerticalSpan:new{ width = Size.padding.small })
     table.insert(meta, TextBoxWidget:new{
         text = entry.title, face = Font:getFace(SERIF, 22),
@@ -374,11 +391,28 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     end
     table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
     if with_blurb and entry.summary then
-        table.insert(meta, TextBoxWidget:new{
-            text = entry.summary, face = Font:getFace("cfont", 13),
+        -- Only reserve the full allowance when the text actually needs it,
+        -- otherwise a two-line blurb leaves a hole above the progress bar.
+        local face = Font:getFace("cfont", 13)
+        local cap = math.floor(h * 0.26)
+        local blurb = TextBoxWidget:new{
+            text = entry.summary, face = face,
             width = meta_w, alignment = "left", fgcolor = GREY,
-            height = Screen:scaleBySize(34),
-        })
+        }
+        local overflows = blurb:getSize().h > cap
+        if overflows then
+            blurb:free()
+            blurb = TextBoxWidget:new{
+                text = entry.summary, face = face,
+                width = meta_w, alignment = "left", fgcolor = GREY,
+                height = cap, height_overflow_show_ellipsis = true,
+            }
+        end
+        table.insert(meta, blurb)
+        if overflows then
+            self.more_widget = text(_("more"), "infont", 12, BLACK)
+            table.insert(meta, self.more_widget)
+        end
         table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
     end
     if self.fresh then
@@ -403,6 +437,23 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         if #parts > 0 then
             table.insert(meta, text(table.concat(parts, "  ·  "), "infont", 12, GREY, meta_w))
         end
+    end
+
+    if self.more_widget then
+        -- The hero is centred in its band, and the meta column starts at the
+        -- top of that centred block.
+        local content_h = math.max(cover_h, meta:getSize().h)
+        local top = band_y + math.floor((h - content_h) / 2)
+        local offset = 0
+        for _, child in ipairs(meta) do
+            if child == self.more_widget then break end
+            offset = offset + child:getSize().h
+        end
+        local size = self.more_widget:getSize()
+        local summary, title = entry.summary, entry.title
+        self:zone(self.gutter + cover_w + self.gutter, top + offset,
+                  size.w, size.h, function() self:showBlurb(title, summary) end)
+        self.more_widget = nil
     end
 
     self:zone(0, band_y, self.screen_w, h, function() self:openBook(entry) end)
@@ -610,6 +661,13 @@ end
 
 -- behaviour ----------------------------------------------------------------
 
+function HomeScreen:showBlurb(title, summary)
+    UIManager:show(require("ui/widget/textviewer"):new{
+        title = title,
+        text = summary,
+    })
+end
+
 function HomeScreen:openBook(entry)
     if entry.on_device and entry.file then
         UIManager:close(self)
@@ -656,6 +714,7 @@ end
 
 function HomeScreen:refresh()
     self.tap_zones = {}
+    self.more_widget = nil
     self:recompute()
     self:build()
     UIManager:setDirty(self, "ui")
