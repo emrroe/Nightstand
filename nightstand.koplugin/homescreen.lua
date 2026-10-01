@@ -174,7 +174,8 @@ end
 function HomeScreen:buildShelf()
     local w, h = self.screen_w, self.screen_h
     local status_h = math.floor(h * 0.034)
-    local tabs_h = math.floor(h * 0.044)
+    local tabs_h = self:tabsHeight()
+    local tabs_margin = self:tabsMargin()
 
     local shelves = {}
     for _, shelf in ipairs(Books:shelves(self.entries, self.current)) do
@@ -182,16 +183,10 @@ function HomeScreen:buildShelf()
     end
 
     local count = math.max(1, math.min(#shelves, self:shelfCount()))
-    -- Size the covers against a nominal hero, then hand the shelves exactly
-    -- the height they turned out to need and give the slack to the hero. A
-    -- 2:3 cover rarely divides the space evenly, and dead air under the last
-    -- shelf is worse than a taller continue card.
-    local nominal = h - status_h - tabs_h - math.floor(h * 0.30)
-    local _cols, cover_w = self:stripMetrics(nominal, count)
-    local each = self:labelHeight() + Size.padding.default
-                   + math.floor(cover_w * 1.5) + Size.padding.large
-    local hero_h = h - status_h - tabs_h - count * each
+    local cols, cover_w, each, hero_h = self:shelfPlan(count, status_h,
+                                                       tabs_h + tabs_margin)
     self.strip_cover_w = cover_w
+    self.strip_cols = cols
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -214,6 +209,7 @@ function HomeScreen:buildShelf()
         add(self:stripBand(shelves[index], each, strip_y), each)
     end
 
+    add(VerticalSpan:new{ width = tabs_margin }, tabs_margin)
     local tabs_y = y
     add(self:tabsBand(tabs_h, tabs_y), tabs_h)
 
@@ -223,6 +219,16 @@ function HomeScreen:buildShelf()
         stack,
     }
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+end
+
+--- The tab bar is chrome, not content: it keeps one height whatever the
+--- orientation, with a fixed margin above it.
+function HomeScreen:tabsHeight()
+    return Screen:scaleBySize(40)
+end
+
+function HomeScreen:tabsMargin()
+    return Screen:scaleBySize(16)
 end
 
 function HomeScreen:labelHeight()
@@ -252,12 +258,56 @@ function HomeScreen:stripMetrics(strips_h, count)
     return cols, cover_w, gap, strip_h
 end
 
+--- Works out the shelf cover size, and what is left for the hero.
+---
+--- Shelves take exactly the height they need and the slack goes to the hero,
+--- because a 2:3 cover rarely divides the space evenly and dead air under the
+--- last shelf is worse than a taller continue card. Columns start low -- the
+--- largest shelf covers -- and step up until the hero's own cover is bigger
+--- than a shelf cover, which is what keeps the continue card reading as the
+--- main thing on the screen. In landscape that trade lands on one more book
+--- per shelf and a shorter shelf.
+function HomeScreen:shelfPlan(count, status_h, footer_h)
+    local area_w = self.screen_w - 2 * self.gutter
+    local gap = Screen:scaleBySize(8)
+    local chrome = self:labelHeight() + Size.padding.default + Size.padding.large
+    local available = self.screen_h - status_h - footer_h
+    local floor_w = Screen:scaleBySize(60)
+    local fallback
+
+    for cols = 3, 10 do
+        local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
+        if cover_w < floor_w then break end
+        local each = chrome + math.floor(cover_w * 1.5)
+        local hero_h = available - count * each
+        if hero_h > 0 then
+            fallback = fallback or { cols, cover_w, each, hero_h }
+            -- heroCoverWidth mirrors what heroBand will do with that height
+            if self:heroCoverWidth(hero_h) > cover_w then
+                return cols, cover_w, each, hero_h
+            end
+        end
+    end
+    if fallback then return fallback[1], fallback[2], fallback[3], fallback[4] end
+    local cover_w = math.floor((area_w - 3 * gap) / 4)
+    local each = chrome + math.floor(cover_w * 1.5)
+    return 4, cover_w, each, available - count * each
+end
+
+-- Kept in step with heroBand's own padding; the hero cover is sized from
+-- whatever is left of the band.
+local HERO_PAD = 0.05
+
+function HomeScreen:heroCoverWidth(hero_h)
+    local pad = math.floor(hero_h * HERO_PAD)
+    return math.floor((hero_h - 2 * pad) / 1.5)
+end
+
 function HomeScreen:stripBand(shelf, h, band_y)
     local w = self.screen_w
-    local area_w = w - 2 * self.gutter
     local gap = Screen:scaleBySize(8)
     local cover_w = self.strip_cover_w
-    local cols = math.floor((area_w + gap) / (cover_w + gap))
+    local cols = self.strip_cols
     local cover_h = math.floor(cover_w * 1.5)
     local label_h = self:labelHeight()
 
@@ -298,8 +348,10 @@ function HomeScreen:buildGrid()
     for key, fraction in pairs(BAND) do
         heights[key] = math.floor(h * fraction)
     end
+    heights.tabs = self:tabsHeight()
+    heights.tabs_margin = self:tabsMargin()
     heights.grid = h - heights.status - heights.hero - heights.head
-                     - heights.pager - heights.tabs
+                     - heights.pager - heights.tabs - heights.tabs_margin
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -328,6 +380,7 @@ function HomeScreen:buildGrid()
     local pager_y = y
     add(self:pagerBand(heights.pager, pager_y), heights.pager)
 
+    add(VerticalSpan:new{ width = heights.tabs_margin }, heights.tabs_margin)
     local tabs_y = y
     add(self:tabsBand(heights.tabs, tabs_y), heights.tabs)
 
@@ -361,7 +414,7 @@ end
 
 function HomeScreen:heroBand(h, band_y, with_blurb)
     local entry = self.current
-    local pad = math.floor(h * 0.09)
+    local pad = math.floor(h * HERO_PAD)
     local inner_h = h - 2 * pad
     if not entry then
         local msg = Settings:get("books_dir") == ""
@@ -629,12 +682,22 @@ function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
     end
 
     if not entry.on_device then
+        -- A square inner box and a radius of half the outer height, so the
+        -- badge is a circle rather than a rounded pill around the glyph.
+        local inner = math.floor(w * 0.15)
         local disc = FrameContainer:new{
-            background = BLACK, bordersize = 0, margin = 0,
-            padding = Size.padding.tiny, radius = math.floor(w * 0.07),
-            text("\u{2193}", "infont", 12, WHITE),
+            background = WHITE,
+            color = BLACK,
+            bordersize = Size.border.thin,
+            margin = 0,
+            padding = 0,
+            CenterContainer:new{
+                dimen = Geom:new{ w = inner, h = inner },
+                text("\u{2193}", "infont", 12, BLACK),
+            },
         }
         local size = disc:getSize()
+        disc.radius = math.floor(size.h / 2)
         disc.overlap_offset = { w - size.w - pad, h - size.h - pad }
         table.insert(group, disc)
     end
