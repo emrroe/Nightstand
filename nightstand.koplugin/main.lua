@@ -9,6 +9,7 @@ not on this device are marked; everything else is a normal KOReader file.
 
 local InfoMessage = require("ui/widget/infomessage")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
+local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Availability = require("availability")
@@ -66,7 +67,15 @@ end
 function Nightstand:openAsHome()
     if not Settings:get("replace_file_browser") then return end
     if Settings:booksDir() == "" then return end
-    UIManager:nextTick(function() self:open() end)
+    UIManager:nextTick(function()
+        self:open()
+        -- first run: fetch the library rather than greet the user with nothing
+        if Catalog:count() == 0 and Settings:get("server") ~= ""
+           and NetworkMgr:isOnline() then
+            self:refreshCatalogue()
+            if shown_home then shown_home:reload() end
+        end
+    end)
 end
 
 function Nightstand:open()

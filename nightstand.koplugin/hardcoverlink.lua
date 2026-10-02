@@ -149,6 +149,17 @@ function HardcoverLink:build()
     table.insert(group, VerticalSpan:new{ width = Screen:scaleBySize(20) })
 
     local buttons = VerticalGroup:new{ align = "center" }
+    -- on a phone the QR code is on the very screen that would scan it
+    if device and self.state == "waiting" and Device:canOpenLink() then
+        table.insert(buttons, Button:new{
+            text = _("Open in browser"),
+            width = math.floor(w * 0.5),
+            callback = function()
+                Device:openLink(device.verification_uri_complete or device.verification_uri)
+            end,
+        })
+        table.insert(buttons, VerticalSpan:new{ width = Screen:scaleBySize(10) })
+    end
     if self.state == "expired" or self.state == "error" then
         table.insert(buttons, Button:new{
             text = _("Get a new code"),

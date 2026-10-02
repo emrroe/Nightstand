@@ -212,7 +212,15 @@ function HomeScreen:buildShelf()
 
     for index = 1, count do
         local strip_y = y
-        add(self:stripBand(shelves[index], each, strip_y), each)
+        if shelves[index] then
+            add(self:stripBand(shelves[index], each, strip_y), each)
+        else
+            -- a fresh install: nothing local and no catalogue fetched yet
+            add(CenterContainer:new{
+                dimen = Geom:new{ w = w, h = each },
+                text(_("No books yet. Refresh the catalogue under Settings."), "cfont", 15, GREY),
+            }, each)
+        end
     end
 
     add(VerticalSpan:new{ width = tabs_margin }, tabs_margin)
@@ -749,6 +757,13 @@ end
 function HomeScreen:onTab(id)
     if id == "home" then return end
     if self.plugin then self.plugin:openTab(id) end
+end
+
+--- Re-read the books, for when the catalogue changed underneath.
+function HomeScreen:reload()
+    self.entries = Books:list(Settings:booksDir())
+    self.current, self.fresh = Books:current(self.entries)
+    self:refresh()
 end
 
 function HomeScreen:refresh()
