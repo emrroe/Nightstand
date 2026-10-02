@@ -51,19 +51,28 @@ function Progress:fetch(checksum)
     }
 end
 
---- Refresh every entry that has a checksum, i.e. every book held locally.
---- Returns how many came back with a position.
+--- The key a server-only book's position is kept under. CWA 4.0.7 and later
+--- store positions against the Calibre book id, so a book never downloaded
+--- here can still say how far it was read elsewhere.
+function Progress.bookKey(book_id)
+    return book_id and ("book:" .. tostring(book_id))
+end
+
+--- Refresh every book: held-locally ones by their checksum, and every
+--- catalogue book by its id. Returns how many came back with a position.
 function Progress:refreshAll(entries)
     local records = self:load()
     local found = 0
     for _, entry in ipairs(entries) do
-        if entry.checksum then
-            local record = self:fetch(entry.checksum)
-            if record then
-                records[entry.checksum] = record
-                found = found + 1
-            end
+        local by_checksum = entry.checksum and self:fetch(entry.checksum)
+        if by_checksum then
+            records[entry.checksum] = by_checksum
         end
+        local by_id = entry.book_id and self:fetch(tostring(entry.book_id))
+        if by_id then
+            records[Progress.bookKey(entry.book_id)] = by_id
+        end
+        if by_checksum or by_id then found = found + 1 end
     end
     self.records = records
     self:save()

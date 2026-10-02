@@ -50,17 +50,22 @@ function Books:entryFor(file, checksum)
         on_device = true,
     }
 
-    -- A position read on another device only exists on the server. Take
-    -- whichever is further along rather than letting one overwrite the other.
-    local synced = Progress:get(checksum)
-    entry.server_read_at = synced and tonumber(synced.timestamp)
-    if synced and synced.percentage > (entry.percent or 0) then
+    self:applyPosition(entry, Progress:get(checksum))
+    return entry
+end
+
+--- A position read on another device only exists on the server. Take
+--- whichever is further along rather than letting one overwrite the other.
+function Books:applyPosition(entry, synced)
+    if not synced or not synced.percentage then return end
+    local at = tonumber(synced.timestamp)
+    if at and at > (entry.server_read_at or 0) then entry.server_read_at = at end
+    if synced.percentage > (entry.percent or 0) then
         entry.percent = synced.percentage
         entry.device = synced.device
         entry.synced_at = synced.timestamp
         entry.status = synced.percentage >= 1 and "complete" or "reading"
     end
-    return entry
 end
 
 --- Titles compared loosely: local names carry the author, catalogue ones
@@ -114,6 +119,10 @@ function Books:list(books_dir)
         end
     end
 
+    for _, entry in ipairs(entries) do
+        self:applyPosition(entry, Progress:get(Progress.bookKey(entry.book_id)))
+    end
+
     local last_read = {}
     for _, item in ipairs(ReadHistory.hist or {}) do
         last_read[item.file] = math.max(last_read[item.file] or 0, item.time or 0)
@@ -136,10 +145,14 @@ end
 --- The book the hero card shows, plus whether it is a suggestion rather
 --- than something already under way.
 function Books:current(entries)
+    -- the book in progress you touched last, wherever you touched it
     local best
     for _, entry in ipairs(entries) do
         if entry.status == "reading" and entry.percent then
-            if not best or entry.percent > best.percent then best = entry end
+            local at, best_at = entry.last_read or 0, best and best.last_read or 0
+            if not best or at > best_at or (at == best_at and entry.percent > best.percent) then
+                best = entry
+            end
         end
     end
     if best then return best, false end

@@ -131,6 +131,32 @@ T.describe("reading positions", function()
     end)
 end)
 
+T.describe("positions for books not on this device", function()
+    T.it("a server-only book read elsewhere is the current book on an empty device", function()
+        local dir = setup({}, {
+            { id = 12, title = "Wind and Truth", authors = { "Brandon Sanderson" }, progress = { 0.21, "nova2", 1790000000 } },
+            { id = 13, title = "Older Read", authors = { "X" }, progress = { 0.8, "nova2", 1700000000 } },
+            { id = 14, title = "Untouched", authors = { "Y" } } })
+        local Books = require("books")
+        T.eq(require("progress"):refreshAll(Books:list(dir)), 2, "two positions found by book id")
+        local entries = Books:list(dir)
+        local current, fresh = Books:current(entries)
+        T.eq(current.title, "Wind and Truth", "most recently read wins over furthest")
+        T.eq(fresh, false)
+        T.eq(current.status, "reading")
+        T.eq(current.percent, 0.21)
+        T.eq(current.device, "nova2")
+        T.ok(not current.on_device, "still only on the server")
+    end)
+    T.it("an older CWA that only knows checksums leaves server-only books alone", function()
+        local dir = setup({}, { { id = 12, title = "Wind and Truth", authors = { "B" } } })
+        local Books = require("books")
+        T.eq(require("progress"):refreshAll(Books:list(dir)), 0)
+        local _, fresh = Books:current(Books:list(dir))
+        T.eq(fresh, true, "falls back to a suggestion")
+    end)
+end)
+
 T.describe("next in series", function()
     local function b(title, series, index, status, last_read)
         return { title = title, series = series, series_index = index, status = status, last_read = last_read }

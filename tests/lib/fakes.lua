@@ -120,6 +120,12 @@ function Fakes.library(books, opts)
                 '{"title": "x", "series": null, "series_index": %s}',
                 b.series and tostring(b.series[2]) or "1.0")
         end
+        if b.progress then
+            -- CWA 4.0.7+ answers by Calibre book id as well as by checksum
+            routes["/kosync/syncs/progress/" .. b.id] = string.format(
+                '{"percentage": %s, "device": "%s", "timestamp": %d, "calibre_book_id": %d}',
+                tostring(b.progress[1]), b.progress[2] or "nova2", b.progress[3] or 1700000000, b.id)
+        end
         routes["/opds/cover/" .. b.id] = Fakes.png()
         routes["/opds/download/" .. b.id .. "/epub/"] = "EPUBDATA-" .. b.id
     end
