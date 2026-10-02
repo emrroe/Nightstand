@@ -258,122 +258,118 @@ function HomeScreen:statusBand(h)
     }
 end
 
+function HomeScreen:heroEmpty(h)
+    local msg = Settings:get("books_dir") == ""
+        and _("Set a books folder under Tools > Nightstand.")
+         or _("Nothing in progress. Pick something below.")
+    return band(self.screen_w, h, self.gutter, CenterContainer:new{
+        dimen = Geom:new{ w = self.screen_w - 2 * self.gutter, h = h },
+        text(msg, "cfont", 17, GREY),
+    })
+end
+
+--- The title in the hero's serif, two lines at most.
+function HomeScreen:heroTitle(entry, w)
+    local face = Dim.face(SERIF, 22)
+    local title = TextBoxWidget:new{ text = entry.title, face = face, width = w, alignment = "left" }
+    local two_lines = 2 * W.lineHeight(SERIF, 22)
+    if title:getSize().h <= two_lines + 2 then return title end
+    title:free()
+    return TextBoxWidget:new{
+        text = entry.title, face = face, width = w, alignment = "left",
+        height = two_lines, height_overflow_show_ellipsis = true,
+    }
+end
+
+--- The blurb, cut to whole lines that fit `room`, plus a "more" link when
+--- it was cut. Either can be nil.
+function HomeScreen:heroBlurb(entry, w, room)
+    if not entry.summary then return nil end
+    local face = Dim.face("cfont", 13)
+    local blurb = TextBoxWidget:new{
+        text = entry.summary, face = face, width = w, alignment = "left", fgcolor = GREY,
+    }
+    if blurb:getSize().h <= room then return blurb end
+    blurb:free()
+    local more = text(_("more"), "infont", 12, BLACK)
+    local lines = math.floor((room - more:getSize().h) / W.lineHeight("cfont", 13))
+    if lines < 1 then
+        more:free()
+        return nil
+    end
+    return TextBoxWidget:new{
+        text = entry.summary, face = face, width = w, alignment = "left", fgcolor = GREY,
+        height = lines * W.lineHeight("cfont", 13), height_overflow_show_ellipsis = true,
+    }, more
+end
+
+--- The continue card: cover on the left, a column of text on the right that
+--- fills the band. Title, author and details are placed first; the blurb gets
+--- what is left, and when even that runs out the least important lines go.
 function HomeScreen:heroBand(h, band_y, with_blurb)
     local entry = self.current
+    if not entry then return self:heroEmpty(h) end
+
     local pad = math.floor(h * HERO_PAD)
     local inner_h = h - 2 * pad
-    if not entry then
-        local msg = Settings:get("books_dir") == ""
-            and _("Set a books folder under Tools > Nightstand.")
-             or _("Nothing in progress. Pick something below.")
-        return band(self.screen_w, h, self.gutter,
-                    CenterContainer:new{
-                        dimen = Geom:new{ w = self.screen_w - 2 * self.gutter, h = h },
-                        text(msg, "cfont", 17, GREY),
-                    })
-    end
-
     local cover_h = inner_h
     local cover_w = math.floor(cover_h / W.COVER_ASPECT)
     local tile = CoverTile.new(entry, cover_w, cover_h, { no_tag = true })
-    local meta_w = self.screen_w - 2 * self.gutter - cover_w - self.gutter
+    local meta_x = self.gutter + cover_w + self.gutter
+    local meta_w = self.screen_w - meta_x - self.gutter
+    local gap = Dim.pad.default
 
+    local title = self:heroTitle(entry, meta_w)
+    local author = entry.author and entry.author ~= "" and text(entry.author, "cfont", 14, GREY, meta_w) or nil
+    local details = self:heroDetails(entry, meta_w)
 
-    -- The column has inner_h to fill. Title, author and progress are built
-    -- first; the blurb gets whatever height is left, and when even those
-    -- don't fit, the least important lines go first.
-    local title = TextBoxWidget:new{
-        text = entry.title, face = Dim.face(SERIF, 22),
-        width = meta_w, alignment = "left",
-    }
-    local one_line = text("Ag", SERIF, 22):getSize().h
-    if title:getSize().h > 2 * one_line + 2 then
-        title:free()
-        title = TextBoxWidget:new{
-            text = entry.title, face = Dim.face(SERIF, 22), width = meta_w, alignment = "left",
-            height = 2 * one_line, height_overflow_show_ellipsis = true,
-        }
-    end
-    local author = entry.author and entry.author ~= "" and text(entry.author, "cfont", 14, GREY, meta_w)
-
-    local progress = self:heroDetails(entry, meta_w)
-
-    local function height(list)
+    local function heights(list)
         local sum = 0
         for _, widget in ipairs(list) do sum = sum + widget:getSize().h end
         return sum
     end
-    local gap = Dim.pad.default
-    local fixed = Dim.pad.small + title:getSize().h + (author and author:getSize().h or 0)
-                  + gap + height(progress)
-    -- out of room: drop reading details from the bottom, then the author
-    while fixed > inner_h and #progress > 2 do
-        fixed = fixed - table.remove(progress):getSize().h
+    local used = Dim.pad.small + title:getSize().h + (author and author:getSize().h or 0)
+                 + gap + heights(details)
+    while used > inner_h and #details > 2 do
+        used = used - table.remove(details):getSize().h
     end
-    if fixed > inner_h and author then
-        fixed = fixed - author:getSize().h
+    if used > inner_h and author then
+        used = used - author:getSize().h
         author = nil
     end
 
-    local blurb, overflows
-    if with_blurb and entry.summary then
-        local face = Dim.face("cfont", 13)
-        local more_h = text(_("more"), "infont", 12, BLACK):getSize().h
-        local line_h = text("Ag", "cfont", 13):getSize().h
-        local room = inner_h - fixed - gap
-        blurb = TextBoxWidget:new{
-            text = entry.summary, face = face,
-            width = meta_w, alignment = "left", fgcolor = GREY,
-        }
-        if blurb:getSize().h > room then
-            blurb:free()
-            -- whole lines only, and leave room for the "more" under them
-            local lines = math.floor((room - more_h) / line_h)
-            if lines >= 1 then
-                blurb = TextBoxWidget:new{
-                    text = entry.summary, face = face,
-                    width = meta_w, alignment = "left", fgcolor = GREY,
-                    height = lines * line_h, height_overflow_show_ellipsis = true,
-                }
-                overflows = true
-            else
-                blurb = nil
-            end
-        end
-    end
+    local blurb, more
+    if with_blurb then blurb, more = self:heroBlurb(entry, meta_w, inner_h - used - gap) end
 
+    -- offsets are summed here: asking the group mid-build would freeze its layout
     local meta = VerticalGroup:new{ align = "left" }
-    table.insert(meta, VerticalSpan:new{ width = Dim.pad.small })
-    table.insert(meta, title)
-    if author then table.insert(meta, author) end
-    table.insert(meta, VerticalSpan:new{ width = gap })
+    local meta_h = 0
+    local function put(widget)
+        table.insert(meta, widget)
+        meta_h = meta_h + widget:getSize().h
+    end
+    put(VerticalSpan:new{ width = Dim.pad.small })
+    put(title)
+    if author then put(author) end
+    put(VerticalSpan:new{ width = gap })
+    local more_offset
     if blurb then
-        table.insert(meta, blurb)
-        if overflows then
-            self.more_widget = text(_("more"), "infont", 12, BLACK)
-            table.insert(meta, self.more_widget)
+        put(blurb)
+        if more then
+            more_offset = meta_h
+            put(more)
         end
-        table.insert(meta, VerticalSpan:new{ width = gap })
+        put(VerticalSpan:new{ width = gap })
     end
-    for _, widget in ipairs(progress) do table.insert(meta, widget) end
+    for _, widget in ipairs(details) do put(widget) end
 
-    if self.more_widget then
-        -- The hero is centred in its band, and the meta column starts at the
-        -- top of that centred block.
-        local content_h = math.max(cover_h, meta:getSize().h)
-        local top = band_y + math.floor((h - content_h) / 2)
-        local offset = 0
-        for _, child in ipairs(meta) do
-            if child == self.more_widget then break end
-            offset = offset + child:getSize().h
-        end
-        local size = self.more_widget:getSize()
-        local summary, title = entry.summary, entry.title
-        self:zone(self.gutter + cover_w + self.gutter, top + offset,
-                  size.w, size.h, function() self:showBlurb(title, summary) end)
-        self.more_widget = nil
+    if more then
+        -- the hero block is centred in its band; "more" sits more_offset below its top
+        local top = band_y + math.floor((h - math.max(cover_h, meta_h)) / 2)
+        local size = more:getSize()
+        self:zone(meta_x, top + more_offset, size.w, size.h,
+                  function() self:showBlurb(entry.title, entry.summary) end)
     end
-
     self:zone(0, band_y, self.screen_w, h, function() self:openBook(entry) end,
               function() self:holdBook(entry) end)
 
