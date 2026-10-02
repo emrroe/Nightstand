@@ -849,6 +849,17 @@ function HomeScreen:openBook(entry)
 end
 
 function HomeScreen:fetchAndOpen(entry)
+    local Net = require("net")
+    if not Net.mayDownload() then
+        UIManager:show(require("ui/widget/infomessage"):new{
+            text = _("This phone is on mobile data and “Over Wi-Fi only” is on. Connect to Wi-Fi, or turn that off in Settings."),
+        })
+        return
+    end
+    Net.whenOnline(function() self:downloadAndOpen(entry) end)
+end
+
+function HomeScreen:downloadAndOpen(entry)
     local InfoMessage = require("ui/widget/infomessage")
     local working = InfoMessage:new{ text = T(_("Fetching %1…"), entry.title) }
     UIManager:show(working)

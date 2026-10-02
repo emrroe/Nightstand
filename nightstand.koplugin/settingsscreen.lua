@@ -130,18 +130,15 @@ function SettingsScreen:groups()
             { label = _("Refresh catalogue"),
               value = T(_("%1 books"), Catalog:count()),
               action = function() plugin:refreshCatalogue() self:rebuild() end },
-            { label = _("Refresh when the device wakes"), key = "refresh_on_wake" },
+            { label = _("Update positions when the device wakes"), key = "refresh_on_wake" },
         }},
         { _("Hardcover"), self:hardcoverRows() },
         { _("Home screen"), {
             { label = _("Layout"), value = Settings:layoutName(),
               action = function() self:cycleLayout() end },
-            { label = _("Show time remaining"), key = "time_remaining" },
         }},
         { _("Downloads"), {
             { label = _("Over Wi-Fi only"), key = "wifi_only" },
-            { label = _("Delete the file when a book is finished"),
-              key = "delete_when_finished" },
         }},
         { _("This device"), {
             { label = _("Books held locally"),

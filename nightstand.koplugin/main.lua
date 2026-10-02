@@ -17,6 +17,7 @@ local Books = require("books")
 local Catalog = require("catalog")
 local CoverCache = require("covercache")
 local Progress = require("progress")
+local Net = require("net")
 local Settings = require("settings")
 local _ = require("gettext")
 local T = require("ffi/util").template
@@ -121,6 +122,20 @@ function Nightstand:open()
     UIManager:show(shown_home)
 end
 
+--- Coming back from sleep: positions may have moved on another device.
+--- Quietly skipped when offline; the next wake or refresh catches up.
+function Nightstand:onResume()
+    if not Settings:get("refresh_on_wake") then return end
+    UIManager:scheduleIn(3, function()
+        local home = shown_home
+        if not (home and UIManager:isWidgetShown(home) and Net.isOnline()) then return end
+        Progress:refreshAll(home.entries, function(entry)
+            return entry.on_device or entry.status == "reading"
+        end)
+        home:reload()
+    end)
+end
+
 --- Pull the CWA catalogue, then fetch a cover for every book that is not
 --- already on the device. Deliberately synchronous: it only runs when asked.
 function Nightstand:refreshCatalogue(touchmenu_instance)
@@ -140,10 +155,12 @@ function Nightstand:refreshCatalogue(touchmenu_instance)
     Availability:invalidate()
     local shelf = Books:list(Settings:booksDir())
     local fetched = 0
-    for _, entry in ipairs(shelf) do
-        if not entry.on_device and not CoverCache:hasRemote(entry.book_id) then
-            if CoverCache:fetchRemote(entry.book_id, entry.cover_url) then
-                fetched = fetched + 1
+    if Net.mayDownload() then
+        for _, entry in ipairs(shelf) do
+            if not entry.on_device and not CoverCache:hasRemote(entry.book_id) then
+                if CoverCache:fetchRemote(entry.book_id, entry.cover_url) then
+                    fetched = fetched + 1
+                end
             end
         end
     end
@@ -256,7 +273,7 @@ function Nightstand:addToMainMenu(menu_items)
                 end,
             },
             {
-                text = _("Refresh catalogue when the device wakes"),
+                text = _("Update reading positions when the device wakes"),
                 checked_func = function() return Settings:get("refresh_on_wake") end,
                 callback = function() Settings:toggle("refresh_on_wake") end,
                 separator = true,
@@ -268,21 +285,10 @@ function Nightstand:addToMainMenu(menu_items)
                 sub_item_table_func = function() return self:layoutMenu() end,
             },
             {
-                text = _("Show time remaining"),
-                checked_func = function() return Settings:get("time_remaining") end,
-                callback = function() Settings:toggle("time_remaining") end,
-                separator = true,
-            },
-            {
                 text = _("Download over Wi-Fi only"),
+                help_text = _("On a phone, books and covers are not downloaded over mobile data."),
                 checked_func = function() return Settings:get("wifi_only") end,
                 callback = function() Settings:toggle("wifi_only") end,
-            },
-            {
-                text = _("Delete the file when a book is finished"),
-                help_text = _([[Removes the downloaded file but keeps the reading position, so the book still reads as finished and can be fetched again.]]),
-                checked_func = function() return Settings:get("delete_when_finished") end,
-                callback = function() Settings:toggle("delete_when_finished") end,
                 separator = true,
             },
             {

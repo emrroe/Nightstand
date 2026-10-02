@@ -174,6 +174,18 @@ T.describe("positions for books not on this device", function()
         T.eq(current.device, "nova2")
         T.ok(not current.on_device, "still only on the server")
     end)
+    T.it("a wake refresh only asks about the books it is told to", function()
+        local dir = setup({}, {
+            { id = 12, title = "Wanted", authors = { "A" }, progress = { 0.3 } },
+            { id = 13, title = "Skipped", authors = { "B" }, progress = { 0.6 } } })
+        local Books = require("books")
+        local calls = Fakes.cwa(Fakes.library({
+            { id = 12, title = "Wanted", authors = { "A" }, progress = { 0.3 } },
+            { id = 13, title = "Skipped", authors = { "B" }, progress = { 0.6 } } }))
+        local n = require("progress"):refreshAll(Books:list(dir), function(e) return e.book_id == 12 end)
+        T.eq(n, 1)
+        for _, path in ipairs(calls) do T.ok(not path:match("/13$"), "no request for 13") end
+    end)
     T.it("an older CWA that only knows checksums leaves server-only books alone", function()
         local dir = setup({}, { { id = 12, title = "Wind and Truth", authors = { "B" } } })
         local Books = require("books")
@@ -205,6 +217,24 @@ T.describe("next in series", function()
         local list = { b("A1", "A", 1, "complete", 10), b("A2", "A", 2, "new"),
                        b("B1", "B", 1, "complete", 99), b("B2", "B", 2, "new") }
         T.eq(T.titles(Books:nextInSeries(list)), { "B2", "A2" })
+    end)
+end)
+
+T.describe("over Wi-Fi only", function()
+    T.it("blocks downloads on mobile data only when the setting is on", function()
+        local Net = require("net")
+        local Settings = require("settings")
+        Net.onMobileData = function() return true end
+        Settings:set("wifi_only", true)
+        T.eq(Net.mayDownload(), false)
+        Settings:set("wifi_only", false)
+        T.eq(Net.mayDownload(), true)
+        Net.onMobileData = function() return false end
+        Settings:set("wifi_only", true)
+        T.eq(Net.mayDownload(), true, "Wi-Fi is fine")
+    end)
+    T.it("off Android there is no mobile data", function()
+        T.eq(require("net").onMobileData(), false)
     end)
 end)
 

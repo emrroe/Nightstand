@@ -18,9 +18,7 @@ Settings.DEFAULTS = {
     password = "",
     books_dir = "",
     refresh_on_wake = true,
-    time_remaining = true,
     wifi_only = true,
-    delete_when_finished = false,
 }
 
 function Settings:open()
