@@ -32,6 +32,7 @@ local Availability = require("availability")
 local Catalog = require("catalog")
 local Hardcover = require("hardcover")
 local HardcoverLink = require("hardcoverlink")
+local Vendors = require("vendors")
 local Settings = require("settings")
 local TabBar = require("tabbar")
 local Dim = require("dim")
@@ -132,9 +133,7 @@ function SettingsScreen:groups()
               action = function() plugin:refreshCatalogue() self:rebuild() end },
             { label = _("Refresh when the device wakes"), key = "refresh_on_wake" },
         }},
-        { _("Hardcover"), {
-            self:hardcoverRow(),
-        }},
+        { _("Hardcover"), self:hardcoverRows() },
         { _("Home screen"), {
             { label = _("Layout"), value = Settings:layoutName(),
               action = function() self:cycleLayout() end },
@@ -157,6 +156,70 @@ function SettingsScreen:groups()
               action = function() plugin:openKoreaderMenu() end },
         }},
     }
+end
+
+function SettingsScreen:hardcoverRows()
+    local rows = { self:hardcoverRow() }
+    if Hardcover:isLinked() then
+        table.insert(rows, { label = _("Find books on"), value = Vendors.current().name,
+                             action = function() self:chooseVendor() end })
+    end
+    return rows
+end
+
+function SettingsScreen:chooseVendor()
+    local ButtonDialog = require("ui/widget/buttondialog")
+    local current = Vendors.current().id
+    local dialog
+    local buttons = {}
+    for _, vendor in ipairs(Vendors.all()) do
+        table.insert(buttons, {{
+            text = (vendor.id == current and "✓  " or "") .. vendor.name,
+            align = "left",
+            callback = function()
+                UIManager:close(dialog)
+                Settings:set("vendor", vendor.id)
+                self:rebuild()
+            end,
+        }})
+    end
+    table.insert(buttons, {{
+        text = _("Add your own…"), align = "left",
+        callback = function()
+            UIManager:close(dialog)
+            self:addVendor()
+        end,
+    }})
+    dialog = ButtonDialog:new{ title = _("Find books on"), title_align = "center", buttons = buttons }
+    UIManager:show(dialog)
+end
+
+function SettingsScreen:addVendor()
+    local MultiInputDialog = require("ui/widget/multiinputdialog")
+    local input
+    input = MultiInputDialog:new{
+        title = _("Add a shop or library"),
+        fields = {
+            { description = _("Name"), text = "", hint = _("My bookshop") },
+            { description = _("Search address, with {query} where the words go"), text = "",
+              hint = "https://example.com/search?q={query}" },
+        },
+        buttons = {{
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(input) end },
+            { text = _("Add"), is_enter_default = true, callback = function()
+                local fields = input:getFields()
+                local ok, err = Vendors.add(fields[1], fields[2])
+                if not ok then
+                    UIManager:show(require("ui/widget/infomessage"):new{ text = err })
+                    return
+                end
+                UIManager:close(input)
+                self:rebuild()
+            end },
+        }},
+    }
+    UIManager:show(input)
+    input:onShowKeyboard()
 end
 
 function SettingsScreen:hardcoverRow()
@@ -187,6 +250,8 @@ function SettingsScreen:confirmUnlink()
         ok_callback = function()
             -- offline, the token is only forgotten; it lapses on Hardcover's side
             if NetworkMgr:isOnline() then Hardcover:unlink() else Hardcover:forget() end
+            -- someone else's recommendations must not linger after a disconnect
+            require("discover"):clear()
             self:rebuild()
         end,
     })

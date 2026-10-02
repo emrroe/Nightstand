@@ -100,6 +100,20 @@ function CoverCache:get(entry, width, height)
         end, width, height)
     end
 
+    if entry.hc_id then
+        local Discover = require("discover")
+        if not Discover:hasCover(entry.hc_id, entry.image_url) then return nil end
+        return scaled("hc:" .. entry.hc_id, self, function()
+            local ok, bb = pcall(function()
+                return RenderImage:renderImageFile(Discover:coverFile(entry.hc_id, entry.image_url),
+                                                   false, width, height)
+            end)
+            if not ok or not bb then return nil end
+            return roundCorners(RenderImage:scaleBlitBuffer(bb, width, height, true),
+                                math.floor(width * 0.045))
+        end, width, height)
+    end
+
     if entry.book_id and self:hasRemote(entry.book_id) then
         return scaled("id:" .. entry.book_id, self, function()
             local ok, bb = pcall(function()

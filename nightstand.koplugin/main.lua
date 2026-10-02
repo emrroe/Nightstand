@@ -45,16 +45,44 @@ end
 
 --- Nightstand's own settings screen.
 function Nightstand:openSettings()
-    UIManager:show(require("settingsscreen"):new{ plugin = self })
+    UIManager:show(require("settingsscreen"):new{ plugin = self }, "ui")
 end
 
 function Nightstand:openLibrary()
-    UIManager:show(require("libraryscreen"):new{ plugin = self })
+    UIManager:show(require("libraryscreen"):new{ plugin = self }, "ui")
+end
+
+--- Discover fetches from Hardcover when it has nothing, or nothing recent,
+--- and the device is online; otherwise it shows what it has.
+function Nightstand:openDiscover(force)
+    local Discover = require("discover")
+    local data = Discover:load()
+    local stale = not data or os.time() - (data.fetched_at or 0) > 6 * 3600
+    if (stale or force) and NetworkMgr:isOnline() then
+        local working = InfoMessage:new{ text = _("Fetching recommendations from Hardcover…") }
+        UIManager:show(working)
+        UIManager:forceRePaint()
+        local current = Books:current(Books:list(Settings:booksDir()))
+        local ok, err = Discover:refresh(current and current.title)
+        if ok then Discover:fetchCovers(12) end
+        UIManager:close(working)
+        if not ok and not data then
+            UIManager:show(InfoMessage:new{ text = T(_("Could not reach Hardcover.\n%1"), tostring(err)) })
+            return
+        end
+    end
+    local DiscoverScreen = require("discoverscreen")
+    if not Discover:load() then
+        UIManager:show(InfoMessage:new{ text = DiscoverScreen.emptyMessage() })
+        return
+    end
+    UIManager:show(DiscoverScreen:new{ plugin = self }, "ui")
 end
 
 --- The home screen stays underneath; every other tab opens on top of it.
 function Nightstand:openTab(id)
     if id == "library" then return self:openLibrary() end
+    if id == "discover" then return self:openDiscover() end
     if id == "settings" then return self:openSettings() end
 end
 

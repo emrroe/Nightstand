@@ -30,7 +30,7 @@ local T = { passed = 0, failed = 0, failures = {}, path = {} }
 T.PLUGIN_MODULES = {
     "dim", "settings", "catalog", "books", "availability", "progress", "covercache",
     "download", "library", "hardcover", "hardcoverlink", "homescreen",
-    "libraryscreen", "settingsscreen", "tabbar", "main",
+    "libraryscreen", "settingsscreen", "tabbar", "main", "discover", "discoverscreen", "vendors",
 }
 
 function T.settingsDir()

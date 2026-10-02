@@ -113,6 +113,7 @@ function HomeScreen:init()
         local full = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
         self.ges_events.Tap = { GestureRange:new{ ges = "tap", range = full } }
         self.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = full } }
+        self.ges_events.Hold = { GestureRange:new{ ges = "hold", range = full } }
     end
 
     self.entries = Books:list(Settings:booksDir())
@@ -165,8 +166,9 @@ function HomeScreen:setFilter(id)
     self:refresh()
 end
 
-function HomeScreen:zone(x, y, w, h, callback)
-    table.insert(self.tap_zones, { rect = Geom:new{ x = x, y = y, w = w, h = h }, cb = callback })
+function HomeScreen:zone(x, y, w, h, callback, on_hold)
+    table.insert(self.tap_zones, { rect = Geom:new{ x = x, y = y, w = w, h = h },
+                                   cb = callback, hold = on_hold })
 end
 
 function HomeScreen:build()
@@ -184,7 +186,7 @@ function HomeScreen:buildShelf()
     local tabs_margin = self:tabsMargin()
 
     local all = {}
-    for _, shelf in ipairs(Books:shelves(self.entries, self.current)) do
+    for _, shelf in ipairs(self:shelfSource()) do
         if #shelf.books > 0 then table.insert(all, shelf) end
     end
 
@@ -255,6 +257,12 @@ function HomeScreen:buildShelf()
         stack,
     }
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+end
+
+--- The shelves to stack under the hero; other screens built like this one
+--- (Discover) supply their own.
+function HomeScreen:shelfSource()
+    return Books:shelves(self.entries, self.current)
 end
 
 --- The tab bar is chrome, not content: it keeps one height whatever the
@@ -362,7 +370,8 @@ function HomeScreen:stripBand(shelf, h, band_y)
             self:zone(self.gutter + (index - 1) * (cover_w + gap),
                       top + label_h + Dim.pad.default,
                       cover_w, cover_h,
-                      function() self:openBook(entry) end)
+                      function() self:openBook(entry) end,
+                      function() self:holdBook(entry) end)
         else
             table.insert(row, hspan(cover_w))
         end
@@ -441,12 +450,18 @@ function HomeScreen:buildGrid()
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
 end
 
-function HomeScreen:statusBand(h)
+function HomeScreen:statusText()
     local server = Settings:get("server"):gsub("^https?://", "")
     if server == "" then server = _("no server set") end
-    local left = text(server, "infont", 13, GREY)
+    return server
+end
+
+function HomeScreen:statusBand(h)
     local right = text(os.date("%H:%M"), "infont", 13, GREY)
     local inner_w = self.screen_w - 2 * self.gutter
+    -- never runs into the clock: cut with an ellipsis instead
+    local left = text(self:statusText(), "infont", 13, GREY,
+                      inner_w - right:getSize().w - Dim.pad.large)
     return LeftContainer:new{
         dimen = Geom:new{ w = self.screen_w, h = h },
         HorizontalGroup:new{
@@ -477,7 +492,6 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     local tile = self:coverTile(entry, cover_w, cover_h, true)
     local meta_w = self.screen_w - 2 * self.gutter - cover_w - self.gutter
 
-    local percent = entry.percent or 0
 
     -- The column has inner_h to fill. Title, author and progress are built
     -- first; the blurb gets whatever height is left, and when even those
@@ -496,39 +510,7 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     end
     local author = entry.author and entry.author ~= "" and text(entry.author, "cfont", 14, GREY, meta_w)
 
-    local progress = {}
-    if self.fresh then
-        table.insert(progress, text(_("Not started"), "infont", 15, GREY))
-    else
-        table.insert(progress, text(string.format("%d%% read", math.floor(percent * 100 + 0.5)),
-                                    "infont", 15))
-        table.insert(progress, ProgressWidget:new{
-            width = meta_w, height = Dim.px(7),
-            percentage = percent, bordersize = 0,
-            fillcolor = BLACK, bgcolor = GREY,
-        })
-        local parts = {}
-        if entry.pages then
-            table.insert(parts, T(_("page %1 of %2"),
-                                  math.floor(percent * entry.pages + 0.5), entry.pages))
-        end
-        if entry.device then
-            table.insert(parts, T(_("from %1, %2"), entry.device,
-                                  os.date("%d %b %H:%M", entry.synced_at or os.time())))
-        end
-        if #parts > 0 then
-            local joined = text(table.concat(parts, "  ·  "), "infont", 12, GREY)
-            if joined:getSize().w <= meta_w then
-                table.insert(progress, joined)
-            else
-                -- too long for one line on a narrow screen: one fact per line
-                joined:free()
-                for _, part in ipairs(parts) do
-                    table.insert(progress, text(part, "infont", 12, GREY, meta_w))
-                end
-            end
-        end
-    end
+    local progress = self:heroDetails(entry, meta_w)
 
     local function height(list)
         local sum = 0
@@ -606,10 +588,53 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         self.more_widget = nil
     end
 
-    self:zone(0, band_y, self.screen_w, h, function() self:openBook(entry) end)
+    self:zone(0, band_y, self.screen_w, h, function() self:openBook(entry) end,
+              function() self:holdBook(entry) end)
 
     return band(self.screen_w, h, self.gutter,
                 HorizontalGroup:new{ align = "top", tile, hspan(self.gutter), meta })
+end
+
+--- What sits under the title and author: reading progress here, rating and
+--- year on Discover. A list of widgets; the last ones are dropped first when
+--- the hero runs out of room.
+function HomeScreen:heroDetails(entry, meta_w)
+    local percent = entry.percent or 0
+    local progress = {}
+    if self.fresh then
+        table.insert(progress, text(_("Not started"), "infont", 15, GREY))
+    else
+        table.insert(progress, text(string.format("%d%% read", math.floor(percent * 100 + 0.5)),
+                                    "infont", 15))
+        table.insert(progress, ProgressWidget:new{
+            width = meta_w, height = Dim.px(7),
+            percentage = percent, bordersize = 0,
+            fillcolor = BLACK, bgcolor = GREY,
+        })
+        local parts = {}
+        if entry.pages then
+            table.insert(parts, T(_("page %1 of %2"),
+                                  math.floor(percent * entry.pages + 0.5), entry.pages))
+        end
+        if entry.device then
+            table.insert(parts, T(_("from %1, %2"), entry.device,
+                                  os.date("%d %b %H:%M", entry.synced_at or os.time())))
+        end
+        if #parts > 0 then
+            local joined = text(table.concat(parts, "  ·  "), "infont", 12, GREY)
+            if joined:getSize().w <= meta_w then
+                table.insert(progress, joined)
+            else
+                -- too long for one line on a narrow screen: one fact per line
+                joined:free()
+                for _, part in ipairs(parts) do
+                    table.insert(progress, text(part, "infont", 12, GREY, meta_w))
+                end
+            end
+        end
+    end
+
+    return progress
 end
 
 function HomeScreen:filterCell(spec, active)
@@ -718,7 +743,7 @@ function HomeScreen:pagerBand(h, band_y)
 end
 
 function HomeScreen:tabsBand(h, band_y)
-    return TabBar.build(self.screen_w, h, band_y, "home",
+    return TabBar.build(self.screen_w, h, band_y, self.tab_id or "home",
                         function(...) self:zone(...) end,
                         function(id) self:onTab(id) end)
 end
@@ -740,7 +765,11 @@ function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
     end
 
     local pad = math.max(2, math.floor(w * 0.04))
-    local tag = not no_tag and Books:progressTag(entry) or nil
+    local tag
+    if not no_tag then
+        -- an entry can bring its own tag (Discover's "In library"), or none
+        if entry.tag ~= nil then tag = entry.tag or nil else tag = Books:progressTag(entry) end
+    end
     if tag == "New" and hide_new then tag = nil end
     if tag then
         local solid = tag ~= "New" and tag ~= "Finished"
@@ -809,6 +838,9 @@ function HomeScreen:showBlurb(title, summary)
     })
 end
 
+--- Long-press on a cover; only Discover does something with it.
+function HomeScreen:holdBook(_entry) end
+
 function HomeScreen:openBook(entry)
     if entry.on_device and entry.file then
         UIManager:close(self)
@@ -869,6 +901,16 @@ function HomeScreen:onTap(_, ges)
     for _index, zone in ipairs(self.tap_zones) do
         if zone.rect:contains(ges.pos) then
             zone.cb()
+            return true
+        end
+    end
+    return true
+end
+
+function HomeScreen:onHold(_, ges)
+    for _index, zone in ipairs(self.tap_zones) do
+        if zone.hold and zone.rect:contains(ges.pos) then
+            zone.hold()
             return true
         end
     end

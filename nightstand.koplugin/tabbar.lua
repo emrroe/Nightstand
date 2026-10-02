@@ -21,9 +21,20 @@ local TabBar = {
     TABS = {
         { id = "home",     label = "HOME" },
         { id = "library",  label = "LIBRARY" },
+        { id = "discover", label = "DISCOVER", needs_hardcover = true },
         { id = "settings", label = "SETTINGS" },
     },
 }
+
+--- The tabs to show right now: Discover only once Hardcover is connected.
+function TabBar.tabs()
+    local linked = require("hardcover"):isLinked()
+    local out = {}
+    for _, tab in ipairs(TabBar.TABS) do
+        if linked or not tab.needs_hardcover then table.insert(out, tab) end
+    end
+    return out
+end
 
 --- Chrome, not content: one height whatever the orientation.
 function TabBar.height()
@@ -36,11 +47,12 @@ end
 
 --- `zone(x, y, w, h, callback)` registers a tap target with the caller.
 function TabBar.build(screen_w, h, band_y, active_id, zone, on_tab)
-    local tab_w = math.floor(screen_w / #TabBar.TABS)
+    local tabs = TabBar.tabs()
+    local tab_w = math.floor(screen_w / #tabs)
     local marker_h = math.floor(h * 0.08)
     local strip = HorizontalGroup:new{ align = "top" }
 
-    for index, tab in ipairs(TabBar.TABS) do
+    for index, tab in ipairs(tabs) do
         local active = tab.id == active_id
         local cell = VerticalGroup:new{ align = "center" }
         if active then

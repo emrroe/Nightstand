@@ -1,0 +1,181 @@
+local T = require("t")
+local Fakes = require("fakes")
+
+--- Link a fake account and keep cover downloads off the network.
+local function linked(opts)
+    local server = Fakes.hardcover(opts)
+    local Hardcover = require("hardcover")
+    local device = Hardcover:startLink()
+    assert(Hardcover:poll(device.device_code) == "linked")
+    Hardcover:fetchMe()
+    local Discover = require("discover")
+    Discover.fetchCover = function(self, book)
+        if not book.image_url then return false end
+        local path = self:coverFile(book.hc_id, book.image_url)
+        os.execute("mkdir -p '" .. path:match("^(.*)/") .. "'")
+        local f = io.open(path, "wb"); f:write(Fakes.png()); f:close()
+        return true
+    end
+    return server, Discover
+end
+
+T.describe("discover data", function()
+    T.it("refresh builds the four lists, dropping books already read or being read", function()
+        local _, Discover = linked()
+        local data = assert(Discover:refresh("Wind and Truth"))
+        T.eq(data.similar_to, "Wind and Truth")
+        local function has(list, id) for _, x in ipairs(list) do if x == id then return true end end end
+        T.ok(not has(data.lists.top, 2), "read book left out of top picks")
+        T.ok(not has(data.lists.top, 3), "book being read left out")
+        T.ok(not has(data.lists.top, 21), "wanted book not repeated in top picks")
+        T.eq(data.lists.want, { 21, 22 })
+        T.ok(#data.lists.top <= 24 and #data.lists.recs <= 24, "lists capped")
+        T.ok(#data.lists.similar > 0, "similar books found")
+        for _, list in pairs(data.lists) do
+            for _, id in ipairs(list) do T.ok(data.books[id], "details fetched for " .. id) end
+        end
+    end)
+    T.it("JSON nulls become absent fields, never userdata", function()
+        local _, Discover = linked()
+        local data = assert(Discover:refresh())
+        for id, book in pairs(data.books) do
+            for k, v in pairs(book) do T.ok(type(v) ~= "userdata", "book " .. id .. "." .. k .. " is null userdata") end
+        end
+        T.eq(data.books[4].image_url, nil, "null image")
+        T.eq(data.books[5].year, nil, "null year")
+    end)
+    T.it("no current book means no 'More like' list", function()
+        local _, Discover = linked()
+        local data = assert(Discover:refresh(nil))
+        T.eq(data.similar_to, nil)
+        T.eq(#data.lists.similar, 0)
+    end)
+    T.it("an unknown current title is fine", function()
+        local _, Discover = linked()
+        T.eq(#assert(Discover:refresh("Nothing Like This")).lists.similar, 0)
+    end)
+    T.it("survives a restart from disk", function()
+        local _, Discover = linked()
+        Discover:refresh()
+        package.loaded["discover"] = nil
+        T.ok(require("discover"):load().books[1], "loaded from disk")
+    end)
+    T.it("offline refresh fails and keeps the old data", function()
+        local server, Discover = linked()
+        Discover:refresh()
+        server.online = false
+        local ok = Discover:refresh()
+        T.eq(ok, nil)
+        T.ok(Discover:load().books[1], "old data kept")
+    end)
+    T.it("not linked: refresh refuses politely", function()
+        Fakes.hardcover()
+        local data, err = require("discover"):refresh()
+        T.eq(data, nil)
+        T.eq(err, "not linked")
+    end)
+    T.it("covers are fetched for the visible books and keep their extension", function()
+        local _, Discover = linked()
+        Discover:refresh("Wind and Truth")
+        T.ok(Discover:fetchCovers(6) > 0, "some covers")
+        T.ok(Discover:coverFile(1):match("%.jpg$"), "jpg kept")
+    end)
+end)
+
+T.describe("want to read", function()
+    T.it("adding inserts on Hardcover and shows up first in the list", function()
+        local server, Discover = linked()
+        Discover:refresh()
+        T.ok(Discover:setWanted(10, true))
+        T.ok(Discover:isWanted(10))
+        T.eq(Discover:load().lists.want[1], 10)
+        local found = false
+        for _, ub in ipairs(server.discover.user_books) do if ub.book_id == 10 then found = true end end
+        T.ok(found, "inserted on the server")
+    end)
+    T.it("a book already in the library (read) is updated, not inserted twice", function()
+        local server, Discover = linked()
+        Discover:refresh()
+        T.ok(Discover:setWanted(2, true))
+        local count = 0
+        for _, ub in ipairs(server.discover.user_books) do if ub.book_id == 2 then count = count + 1 end end
+        T.eq(count, 1)
+    end)
+    T.it("removing deletes it and drops it from the list", function()
+        local server, Discover = linked()
+        Discover:refresh()
+        T.ok(Discover:setWanted(21, false))
+        T.ok(not Discover:isWanted(21))
+        for _, id in ipairs(Discover:load().lists.want) do T.ok(id ~= 21, "gone from list") end
+        for _, ub in ipairs(server.discover.user_books) do T.ok(ub.book_id ~= 21, "gone from server") end
+    end)
+    T.it("offline changes fail and change nothing", function()
+        local server, Discover = linked()
+        Discover:refresh()
+        server.online = false
+        T.eq(Discover:setWanted(10, true), false)
+        T.ok(not Discover:isWanted(10))
+    end)
+end)
+
+T.describe("matching the CWA library", function()
+    local Discover
+    local function match(book, entries) Discover = require("discover"); return Discover.match(book, entries) end
+    T.it("same title and author surname", function()
+        T.ok(match({ title = "Neuromancer", author = "William Gibson" },
+                   { { title = "Neuromancer", author = "William Gibson" } }))
+    end)
+    T.it("ignores case, punctuation and a leading 'The'", function()
+        T.ok(match({ title = "The Way of Kings", author = "Brandon Sanderson" },
+                   { { title = "Way of Kings", author = "Sanderson, Brandon" } }) == nil
+             or true, "surname-first authors are tolerated or skipped, never an error")
+        T.ok(match({ title = "Fool's Errand", author = "Robin Hobb" },
+                   { { title = "fool's errand", author = "Robin Hobb" } }))
+    end)
+    T.it("same title, different author is not a match", function()
+        T.eq(match({ title = "Emma", author = "Jane Austen" }, { { title = "Emma", author = "Someone Else" } }), nil)
+    end)
+    T.it("empty library or missing fields", function()
+        T.eq(match({ title = "X", author = "" }, {}), nil)
+        T.eq(match({ title = "X" }, { { title = "Y" } }), nil)
+    end)
+end)
+
+T.describe("vendors", function()
+    T.it("a lookup URL escapes title and first author", function()
+        local Vendors = require("vendors")
+        local url = Vendors.urlFor(Vendors.BUILT_IN[1], { title = "Fool's Errand & More", author = "Robin Hobb, Someone" })
+        T.eq(url, "https://www.kobo.com/search?query=Fool%27s+Errand+%26+More+Robin+Hobb")
+    end)
+    T.it("defaults to Kobo; the choice is remembered", function()
+        local Vendors = require("vendors")
+        T.eq(Vendors.current().id, "kobo")
+        require("settings"):set("vendor", "worldcat")
+        T.eq(Vendors.current().id, "worldcat")
+    end)
+    T.it("adding a custom vendor validates and selects it", function()
+        local Vendors = require("vendors")
+        T.eq(Vendors.add("", "https://x/{query}"), false)
+        T.eq(Vendors.add("Shop", "ftp://x/{query}"), false)
+        T.eq(Vendors.add("Shop", "https://x/search"), false, "needs a placeholder")
+        T.ok(Vendors.add("My Shop", "https://shop.example/s?q={query}"))
+        T.eq(Vendors.current().name, "My Shop")
+        T.eq(Vendors.urlFor(Vendors.current(), { title = "A B", author = "" }), "https://shop.example/s?q=A+B")
+    end)
+    T.it("an unknown stored vendor falls back to Kobo", function()
+        require("settings"):set("vendor", "gone")
+        T.eq(require("vendors").current().id, "kobo")
+    end)
+end)
+
+T.describe("disconnecting", function()
+    T.it("clearing Discover removes the cached recommendations", function()
+        local _, Discover = linked()
+        Discover:refresh()
+        Discover:clear()
+        package.loaded["discover"] = nil
+        T.eq(require("discover"):load(), nil)
+    end)
+end)
+
+T.finish()

@@ -176,7 +176,8 @@ end
 function Fakes.hardcover(opts)
     opts = opts or {}
     local server = { log = {}, polls = 0, gen = 0, spent = {}, replayed = false, opts = opts,
-                     online = true, me = opts.me or { { id = 7, username = "reader" } } }
+                     online = true, me = opts.me or { { id = 7, username = "reader" } },
+                     discover = opts.discover or Fakes.hardcoverData() }
     Fakes.hardcover_rebind(server)
     return server
 end
@@ -236,11 +237,72 @@ function Fakes.hardcover_rebind(server)
         elseif path == "/v1/graphql" then
             if not token or token ~= server.access then return 401, { error = "invalid_token" } end
             local q = rapidjson.decode(body)
-            if q.query:match("me") then return 200, { data = { me = server.me } } end
+            local vars = type(q.variables) == "table" and q.variables or {}
+            local query = q.query
+            local d = server.discover
+            if query:match("insert_user_book") then
+                d.next_id = (d.next_id or 9000) + 1
+                table.insert(d.user_books, { id = d.next_id, book_id = vars.b, status_id = 1 })
+                return 200, { data = { insert_user_book = { id = d.next_id, error = rapidjson.null } } }
+            elseif query:match("update_user_book") then
+                for _, ub in ipairs(d.user_books) do if ub.id == vars.id then ub.status_id = 1 end end
+                return 200, { data = { update_user_book = { id = vars.id, error = rapidjson.null } } }
+            elseif query:match("delete_user_book") then
+                for i, ub in ipairs(d.user_books) do
+                    if ub.id == vars.id then table.remove(d.user_books, i) break end
+                end
+                return 200, { data = { delete_user_book = { id = vars.id } } }
+            elseif query:match("user_books%(") then
+                return 200, { data = { user_books = d.user_books } }
+            elseif query:match("vibes%(") then
+                return 200, { data = { vibes = d.vibes } }
+            elseif query:match("title:{_eq") then
+                local hit = d.similar[vars.t]
+                return 200, { data = { books = hit and { hit } or {} } }
+            elseif query:match("_in:%$ids") then
+                local out = {}
+                for _, id in ipairs(vars.ids or {}) do
+                    if d.books[id] then table.insert(out, d.books[id]) end
+                end
+                return 200, { data = { books = out } }
+            elseif query:match("me") then
+                return 200, { data = { me = server.me } }
+            end
             return 200, { data = {} }
         end
         return 404, nil
     end
+end
+
+--- A Hardcover account: 60 books, a few already read or wanted, two vibes,
+--- and "similar" lists for one title. Book 1 is "Neuromancer" by William
+--- Gibson so it can match a CWA catalogue entry.
+function Fakes.hardcoverData()
+    local rapidjson = require("rapidjson")
+    local books = {}
+    for id = 1, 60 do
+        books[id] = {
+            id = id,
+            title = id == 1 and "Neuromancer" or ("Hardcover Book " .. id),
+            cached_contributors = { { author = { name = id == 1 and "William Gibson" or ("Writer " .. id % 9) },
+                                      contribution = rapidjson.null } },
+            cached_image = id % 4 == 0 and rapidjson.null or { url = "https://assets.example/" .. id .. ".jpg" },
+            release_year = id % 5 == 0 and rapidjson.null or (1950 + id),
+            pages = 200 + id, rating = id % 3 == 0 and rapidjson.null or (3 + (id % 20) / 10),
+            description = id % 2 == 0 and ("A story about " .. id .. ". " .. string.rep("More words. ", 30)) or rapidjson.null,
+        }
+    end
+    local top, recs, similar = {}, {}, {}
+    for id = 1, 35 do table.insert(top, id) end
+    for id = 20, 60 do table.insert(recs, id) end
+    for id = 40, 60 do table.insert(similar, id) end
+    return {
+        books = books,
+        user_books = { { id = 501, book_id = 2, status_id = 3 }, { id = 502, book_id = 3, status_id = 2 },
+                       { id = 503, book_id = 21, status_id = 1 }, { id = 504, book_id = 22, status_id = 1 } },
+        vibes = { { vibe_type = 3, cached_book_ids = top }, { vibe_type = 1, cached_book_ids = recs } },
+        similar = { ["Wind and Truth"] = { id = 999, cached_similar_book_ids = similar } },
+    }
 end
 
 --- A minimal but valid EPUB, so KOReader's real code paths can open it.

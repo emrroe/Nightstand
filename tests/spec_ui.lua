@@ -179,15 +179,30 @@ end
 
 --- Tap the centre of every zone the screen has right now, painting after each.
 local function tapAll(screen, what)
+    -- a tab tap closes the screen; a closed screen is freed and not painted again
+    local close = UIManager.close
+    UIManager.close = function(um, widget, ...)
+        if widget == screen then screen._closed_by_test = true end
+        return close(um, widget, ...)
+    end
     local zones = {}
     for i, z in ipairs(screen.tap_zones) do zones[i] = z.rect end
     for i, r in ipairs(zones) do
         local pos = Geom:new{ x = r.x + math.floor(r.w / 2), y = r.y + math.floor(r.h / 2), w = 0, h = 0 }
         local ok, err = xpcall(function() screen:onTap(nil, { pos = pos }) end, debug.traceback)
         T.ok(ok, string.format("%s: tapping zone %d at %d,%d failed:\n%s", what, i, pos.x, pos.y, tostring(err)))
-        paint(screen, what .. " after tap " .. i)
+        if screen._closed_by_test then
+            -- reopen a fresh copy so the remaining zones still get tapped
+            screen._closed_by_test = nil
+            screen.free = nil
+            (screen.refresh or screen.rebuild)(screen)
+        end
+        local painted, perr = xpcall(function() paint(screen, what .. " after tap " .. i) end, debug.traceback)
+        T.ok(painted, string.format("%s: painting after tapping zone %d at %d,%d failed:\n%s",
+                                    what, i, pos.x, pos.y, tostring(perr)))
         checkZones(screen, what .. " after tap " .. i)
     end
+    UIManager.close = close
 end
 
 -- the screens -------------------------------------------------------------------
@@ -270,6 +285,46 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
                 tapAll(lib, "library " .. g)
                 lib:free()
             end
+        end)
+
+        T.it("discover (and home with four tabs): paints, zones on screen, every tap and hold survives", function()
+            DATASETS[name]()
+            local server = Fakes.hardcover()
+            local Hardcover = require("hardcover")
+            local device = Hardcover:startLink()
+            T.eq(Hardcover:poll(device.device_code), "linked")
+            Hardcover:fetchMe()
+            local Discover = require("discover")
+            Discover.fetchCover = function(self, book)
+                if not book.image_url then return false end
+                local path = self:coverFile(book.hc_id, book.image_url)
+                os.execute("mkdir -p '" .. path:match("^(.*)/") .. "'")
+                local f = io.open(path, "wb"); f:write(Fakes.png()); f:close()
+                return true
+            end
+            assert(Discover:refresh("Wind and Truth"))
+            Discover:fetchCovers(12)
+
+            local home = quiet(require("homescreen"):new{ plugin = plugin() })
+            paint(home, "home linked")
+            checkZones(home, "home linked")
+
+            local screen = require("discoverscreen"):new{ plugin = plugin() }
+            paint(screen, "discover")
+            checkZones(screen, "discover")
+            tapAll(screen, "discover")
+            for i, z in ipairs(screen.tap_zones) do
+                if z.hold then
+                    local pos = Geom:new{ x = z.rect.x + 1, y = z.rect.y + 1, w = 0, h = 0 }
+                    local ok, err = xpcall(function() screen:onHold(nil, { pos = pos }) end, debug.traceback)
+                    T.ok(ok, "hold on zone " .. i .. ": " .. tostring(err))
+                end
+            end
+            -- want-to-read round trip through the screen
+            local entry = screen.current
+            screen:toggleWanted(entry)
+            paint(screen, "discover after want")
+            T.ok(server, "server used")
         end)
 
         T.it("settings: unlinked, linked and unavailable, every tap survives", function()
