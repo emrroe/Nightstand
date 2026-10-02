@@ -76,6 +76,13 @@ local function norm(str)
     return str
 end
 
+local function titleMatches(local_key, key, author, pass)
+    if pass == 1 then return local_key == key end
+    if local_key:sub(1, #key + 1) ~= key .. " " then return false end
+    local surname = norm((author or ""):match("^[^,]+") or ""):match("(%S+)$")
+    return surname ~= nil and (" " .. local_key .. " "):find(" " .. surname .. " ", 1, true) ~= nil
+end
+
 --- Local files merged with the CWA catalogue. Books only on the server join
 --- the list with `on_device = false` and carry their download link.
 function Books:list(books_dir)
@@ -87,17 +94,27 @@ function Books:list(books_dir)
         table.insert(locals, { key = norm(entry.title), entry = entry })
     end
 
-    for _, item in ipairs(Catalog:load() or {}) do
-        local key = norm(item.title)
-        local matched
-        for _, candidate in ipairs(locals) do
-            if not candidate.taken
-               and (candidate.key == key or candidate.key:find(key, 1, true)) then
-                candidate.taken = true
-                matched = candidate.entry
-                break
+    -- Exact titles claim their files first; a file named "<title> <author>"
+    -- is only claimed afterwards, and only when the author's surname is there.
+    local catalogue = Catalog:load() or {}
+    local claimed = {}
+    for pass = 1, 2 do
+        for index, item in ipairs(catalogue) do
+            local key = norm(item.title)
+            if not claimed[index] and key ~= "" then
+                for _, candidate in ipairs(locals) do
+                    if not candidate.taken and titleMatches(candidate.key, key, item.author, pass) then
+                        candidate.taken = true
+                        claimed[index] = candidate.entry
+                        break
+                    end
+                end
             end
         end
+    end
+
+    for index, item in ipairs(catalogue) do
+        local matched = claimed[index]
         local entry = matched
         if matched then
             matched.title = item.title  -- the catalogue name beats the filename
