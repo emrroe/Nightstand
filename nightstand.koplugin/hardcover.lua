@@ -20,7 +20,7 @@ local Settings = require("settings")
 
 local Hardcover = {
     -- Public by design: anyone can read it out of the plugin.
-    CLIENT_ID = "",
+    CLIENT_ID = "34e6cd7e-8c5b-43be-8f0c-f2361afedd2e",
     API = "https://api.hardcover.app",
     SCOPE = "read:me:content read:library read:vibes read:catalog:data write:library",
 }
