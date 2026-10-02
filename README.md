@@ -50,6 +50,20 @@ Copy `nightstand.koplugin/` into KOReader's plugin folder:
 
 Then set the server and books folder under **Tools → Nightstand**.
 
+## Tests
+
+```sh
+tests/run.sh            # everything
+tests/run.sh library    # one spec
+```
+
+The specs run inside KOReader's own LuaJIT (set `KOREADER_DIR` if it is not
+at `~/.local/share/koreader-app/lib/koreader`), on a private Xvfb display, with
+a throwaway profile and `HOME`. CWA and Hardcover are faked in Lua, so nothing
+touches the network. The UI spec renders every screen in every data state at
+several device sizes, checks every tap zone lies on screen, then taps them all.
+Needs `Xvfb` and `python3` (to build small test EPUBs).
+
 ## Design
 
 The layouts, the badge system and the comparison against other readers are

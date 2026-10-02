@@ -49,7 +49,8 @@ function TabBar.build(screen_w, h, band_y, active_id, zone, on_tab)
             })
         end
         table.insert(cell, CenterContainer:new{
-            dimen = Geom:new{ w = tab_w, h = h - marker_h },
+            -- the rule above the strip is part of the bar's height
+            dimen = Geom:new{ w = tab_w, h = h - marker_h - Size.line.thin },
             TextWidget:new{
                 text = _(tab.label),
                 face = Font:getFace("infont", 11),

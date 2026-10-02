@@ -201,14 +201,14 @@ function HomeScreen:buildShelf()
         y = y + height
     end
 
-    add(self:statusBand(status_h), status_h)
-    add(rule(w), Size.line.thin)
-    y = y - Size.line.thin
+    -- each rule is taken out of the band above it, so the stack sums to h
+    local line = Size.line.thin
+    add(self:statusBand(status_h - line), status_h - line)
+    add(rule(w), line)
 
     local hero_y = y
-    add(self:heroBand(hero_h, hero_y, true), hero_h)
-    add(rule(w), Size.line.thin)
-    y = y - Size.line.thin
+    add(self:heroBand(hero_h - line, hero_y, true), hero_h - line)
+    add(rule(w), line)
 
     for index = 1, count do
         local strip_y = y
@@ -375,14 +375,14 @@ function HomeScreen:buildGrid()
         y = y + height
     end
 
-    add(self:statusBand(heights.status), heights.status)
-    add(rule(w), Size.line.thin)
-    y = y - Size.line.thin -- the rule is inside the status band's budget
+    -- each rule is taken out of the band above it, so the stack sums to h
+    local line = Size.line.thin
+    add(self:statusBand(heights.status - line), heights.status - line)
+    add(rule(w), line)
 
     local hero_y = y
-    add(self:heroBand(heights.hero, hero_y), heights.hero)
-    add(rule(w), Size.line.thin)
-    y = y - Size.line.thin
+    add(self:heroBand(heights.hero - line, hero_y), heights.hero - line)
+    add(rule(w), line)
 
     -- Each band needs the y it starts at, so read it before add() moves on.
     local head_y = y
