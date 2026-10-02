@@ -49,6 +49,8 @@ function CoverCache:fetchRemote(book_id, cover_url)
     if not file then return false end
     file:write(body)
     file:close()
+    -- it may have been painted as coverless before; look again next paint
+    self.misses["id:" .. book_id] = nil
     return true
 end
 

@@ -239,7 +239,8 @@ end
 function HomeScreen:statusText()
     local server = Settings:get("server"):gsub("^https?://", "")
     if server == "" then server = _("no server set") end
-    return server
+    local busy = require("background").status()
+    return busy and (server .. "  ·  " .. busy) or server
 end
 
 function HomeScreen:statusBand(h)

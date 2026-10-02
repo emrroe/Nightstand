@@ -17,6 +17,7 @@ local Books = require("books")
 local Catalog = require("catalog")
 local CoverCache = require("covercache")
 local Progress = require("progress")
+local Background = require("background")
 local Net = require("net")
 local Settings = require("settings")
 local _ = require("gettext")
@@ -129,50 +130,58 @@ function Nightstand:onResume()
     UIManager:scheduleIn(3, function()
         local home = shown_home
         if not (home and UIManager:isWidgetShown(home) and Net.isOnline()) then return end
-        Progress:refreshAll(home.entries, function(entry)
-            return entry.on_device or entry.status == "reading"
-        end)
-        home:reload()
+        local moving = {}
+        for _, entry in ipairs(home.entries) do
+            if entry.on_device or entry.status == "reading" then table.insert(moving, entry) end
+        end
+        self:refreshInBackground(moving, true)
     end)
 end
 
---- Pull the CWA catalogue, then fetch a cover for every book that is not
---- already on the device. Deliberately synchronous: it only runs when asked.
+--- Pull the CWA catalogue (quick, shown as busy), then fetch covers and
+--- reading positions in the background while the screens stay usable.
 function Nightstand:refreshCatalogue(touchmenu_instance)
     local working = InfoMessage:new{ text = _("Refreshing catalogue…") }
     UIManager:show(working)
     UIManager:forceRePaint()
-
     local entries, err = Catalog:refresh()
+    UIManager:close(working)
     if not entries then
-        UIManager:close(working)
-        UIManager:show(InfoMessage:new{
-            text = T(_("Could not reach the server.\n%1"), tostring(err)),
-        })
+        UIManager:show(InfoMessage:new{ text = T(_("Could not reach the server.\n%1"), tostring(err)) })
         return
     end
-
     Availability:invalidate()
-    local shelf = Books:list(Settings:booksDir())
-    local fetched = 0
-    if Net.mayDownload() then
+    if touchmenu_instance then touchmenu_instance:updateItems() end
+    self:refreshInBackground(Books:list(Settings:booksDir()))
+end
+
+function Nightstand:refreshInBackground(shelf, positions_only)
+    if not positions_only and Net.mayDownload() then
+        local missing = {}
         for _, entry in ipairs(shelf) do
-            if not entry.on_device and not CoverCache:hasRemote(entry.book_id) then
-                if CoverCache:fetchRemote(entry.book_id, entry.cover_url) then
-                    fetched = fetched + 1
-                end
+            if not entry.on_device and entry.book_id and not CoverCache:hasRemote(entry.book_id) then
+                table.insert(missing, entry)
             end
         end
+        Background.run(missing, function(entry) CoverCache:fetchRemote(entry.book_id, entry.cover_url) end,
+                       { label = _("Covers"), redraw_every = 4 })
     end
-    local positions = Progress:refreshAll(shelf)
-
-    UIManager:close(working)
-    UIManager:show(InfoMessage:new{
-        text = T(_("%1 books in the catalogue.\n%2 covers fetched.\n%3 reading positions."),
-                 #entries, fetched, positions),
+    Background.run(shelf, function(entry) Progress:refreshEntry(entry) end, {
+        label = _("Positions"),
+        redraw_every = 6,
+        on_done = function() Progress:save() end,
     })
-    if touchmenu_instance then touchmenu_instance:updateItems() end
 end
+
+--- While background work runs, the visible screen redraws as results arrive.
+local function redrawWhileLoading(final)
+    for _, screen in ipairs({ shown_home }) do
+        if screen and UIManager:isWidgetShown(screen) then
+            if final then screen:reload() else screen:refresh() end
+        end
+    end
+end
+Background.on_progress = redrawWhileLoading
 
 function Nightstand:editServer()
     local dialog

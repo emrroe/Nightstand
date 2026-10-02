@@ -58,21 +58,25 @@ function Progress.bookKey(book_id)
     return book_id and ("book:" .. tostring(book_id))
 end
 
+--- Ask the server about one book, by checksum and by id. Does not save.
+function Progress:refreshEntry(entry)
+    local records = self:load()
+    local by_checksum = entry.checksum and self:fetch(entry.checksum)
+    if by_checksum then records[entry.checksum] = by_checksum end
+    local by_id = entry.book_id and self:fetch(tostring(entry.book_id))
+    if by_id then records[Progress.bookKey(entry.book_id)] = by_id end
+    return by_checksum ~= nil or by_id ~= nil
+end
+
 --- Refresh every book (or those `wanted` picks): held-locally ones by their
 --- checksum, catalogue ones by their id. Returns how many have a position.
 function Progress:refreshAll(entries, wanted)
-    local records = self:load()
     local found = 0
     for _, entry in ipairs(entries) do
-        if not wanted or wanted(entry) then
-            local by_checksum = entry.checksum and self:fetch(entry.checksum)
-            if by_checksum then records[entry.checksum] = by_checksum end
-            local by_id = entry.book_id and self:fetch(tostring(entry.book_id))
-            if by_id then records[Progress.bookKey(entry.book_id)] = by_id end
-            if by_checksum or by_id then found = found + 1 end
+        if (not wanted or wanted(entry)) and self:refreshEntry(entry) then
+            found = found + 1
         end
     end
-    self.records = records
     self:save()
     logger.info("Nightstand: positions known for", found, "books")
     return found
