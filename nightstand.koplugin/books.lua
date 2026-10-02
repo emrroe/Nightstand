@@ -166,16 +166,63 @@ function Books:shelves(entries, skip)
     end
     local by_added = function(a, b) return (a.added or "") > (b.added or "") end
 
+    local by_read = function(a, b) return (a.last_read or 0) > (b.last_read or 0) end
+
     return {
         { label = "Reading now",
-          books = pick(function(e) return e.status == "reading" end) },
+          books = pick(function(e) return e.status == "reading" end, by_read) },
+        { label = "Next in series", books = self:nextInSeries(entries, skip) },
         { label = "Recently added",
           books = pick(function(e) return e.added ~= nil end, by_added) },
         { label = "On this device",
           books = pick(function(e) return e.on_device end, by_added) },
         { label = "Not read yet",
           books = pick(function(e) return e.status == "new" end, by_added) },
+        { label = "Finished",
+          books = pick(function(e) return e.status == "complete" end, by_read) },
     }
+end
+
+--- For every series you have started, the first book after the furthest one
+--- you finished or are reading that you have not touched yet. Series you read
+--- most recently come first.
+function Books:nextInSeries(entries, skip)
+    local series = {}
+    for _, e in ipairs(entries) do
+        if e.series and e.series_index then
+            local s = series[e.series]
+            if not s then
+                s = { books = {}, reached = nil, activity = 0 }
+                series[e.series] = s
+            end
+            table.insert(s.books, e)
+            if e.status == "complete" or e.status == "reading" then
+                s.reached = math.max(s.reached or -math.huge, e.series_index)
+                s.activity = math.max(s.activity, e.last_read or 0)
+            end
+        end
+    end
+    local out = {}
+    for _, s in pairs(series) do
+        if s.reached then
+            local next_book
+            for _, e in ipairs(s.books) do
+                if e.series_index > s.reached and e.status ~= "complete" and e.status ~= "reading"
+                   and (not next_book or e.series_index < next_book.series_index) then
+                    next_book = e
+                end
+            end
+            if next_book and next_book ~= skip then
+                table.insert(out, { book = next_book, activity = s.activity })
+            end
+        end
+    end
+    table.sort(out, function(a, b)
+        if a.activity ~= b.activity then return a.activity > b.activity end
+        return a.book.title < b.book.title
+    end)
+    for i, item in ipairs(out) do out[i] = item.book end
+    return out
 end
 
 return Books

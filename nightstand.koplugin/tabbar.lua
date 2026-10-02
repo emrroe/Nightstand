@@ -13,6 +13,7 @@ local LineWidget = require("ui/widget/linewidget")
 local Size = require("ui/size")
 local TextWidget = require("ui/widget/textwidget")
 local VerticalGroup = require("ui/widget/verticalgroup")
+local Dim = require("dim")
 local _ = require("gettext")
 local Screen = Device.screen
 
@@ -26,11 +27,11 @@ local TabBar = {
 
 --- Chrome, not content: one height whatever the orientation.
 function TabBar.height()
-    return Screen:scaleBySize(40)
+    return Dim.px(40)
 end
 
 function TabBar.margin()
-    return Screen:scaleBySize(16)
+    return Dim.px(16)
 end
 
 --- `zone(x, y, w, h, callback)` registers a tap target with the caller.
@@ -53,7 +54,7 @@ function TabBar.build(screen_w, h, band_y, active_id, zone, on_tab)
             dimen = Geom:new{ w = tab_w, h = h - marker_h - Size.line.thin },
             TextWidget:new{
                 text = _(tab.label),
-                face = Font:getFace("infont", 11),
+                face = Dim.face("infont", 11),
                 fgcolor = active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_GRAY,
             },
         })

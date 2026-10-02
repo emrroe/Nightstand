@@ -114,9 +114,26 @@ end
 
 local canvas = Blitbuffer.new(W, H, Screen.bb and Screen.bb:getType() or Blitbuffer.TYPE_BB8)
 
+--- After a paint every widget knows where it was drawn; nothing may stick
+--- out past the screen, which the outer frame would otherwise clip silently.
+local function checkInside(widget, what, depth, seen)
+    if type(widget) ~= "table" or seen[widget] or depth > 60 then return end
+    seen[widget] = true
+    local d = rawget(widget, "dimen")
+    -- only leaves: containers record the content's position but their own width
+    if widget[1] == nil and type(d) == "table" and d.x and d.w and d.w > 0 and d.h and d.h > 0 then
+        T.ok(d.x >= -1 and d.y >= -1 and d.x + d.w <= W + 1 and d.y + d.h <= H + 1,
+             string.format("%s: %s drawn at %d,%d %dx%d, outside %dx%d", what,
+                           tostring(rawget(widget, "text") or widget.name or "widget"),
+                           d.x, d.y, d.w, d.h, W, H))
+    end
+    for _, child in ipairs(widget) do checkInside(child, what, depth + 1, seen) end
+end
+
 local function paint(widget, what)
     canvas:fill(Blitbuffer.COLOR_WHITE)
     widget:paintTo(canvas, 0, 0)
+    checkInside(widget, what, 0, {})
     local size = widget[1] and widget[1]:getSize()
     if size then
         T.ok(size.w <= W + 1 and size.h <= H + 1,

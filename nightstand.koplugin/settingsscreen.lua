@@ -34,6 +34,7 @@ local Hardcover = require("hardcover")
 local HardcoverLink = require("hardcoverlink")
 local Settings = require("settings")
 local TabBar = require("tabbar")
+local Dim = require("dim")
 local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
@@ -50,7 +51,7 @@ local SettingsScreen = InputContainer:extend{
 local function text(str, face, size, colour, max_width)
     return TextWidget:new{
         text = str or "",
-        face = Font:getFace(face, size),
+        face = Dim.face(face, size),
         fgcolor = colour or BLACK,
         max_width = max_width,
     }
@@ -63,9 +64,9 @@ end
 --- Filled with the knob right for on, outlined with it left for off: two cues,
 --- neither of them colour.
 local function toggle(on)
-    local h = Screen:scaleBySize(19)
+    local h = Dim.px(19)
     local w = math.floor(h * 1.9)
-    local knob = h - Screen:scaleBySize(7)
+    local knob = h - Dim.px(7)
     local inset = math.floor((h - knob) / 2)
 
     local track = FrameContainer:new{
@@ -213,8 +214,8 @@ function SettingsScreen:build()
     local w, h = self.screen_w, self.screen_h
     local tabs_h = TabBar.height()
     local tabs_margin = TabBar.margin()
-    local row_h = Screen:scaleBySize(34)
-    local header_h = Screen:scaleBySize(30)
+    local row_h = Dim.px(34)
+    local header_h = Dim.px(30)
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -224,7 +225,7 @@ function SettingsScreen:build()
     end
 
     -- title
-    local title_h = Screen:scaleBySize(42)
+    local title_h = Dim.px(42)
     add(LeftContainer:new{
         dimen = Geom:new{ w = w, h = title_h },
         HorizontalGroup:new{
@@ -235,24 +236,60 @@ function SettingsScreen:build()
     add(LineWidget:new{ background = GREY, dimen = Geom:new{ w = w, h = Size.line.thin } },
         Size.line.thin)
 
-    for _index, group in ipairs(self:groups()) do
-        local title, rows = group[1], group[2]
-        add(LeftContainer:new{
-            dimen = Geom:new{ w = w, h = header_h },
-            HorizontalGroup:new{
-                HorizontalSpan:new{ width = self.gutter },
-                text(title:upper(), "infont", 10, GREY),
-            },
-        }, header_h)
-
-        for _i, row in ipairs(rows) do
-            add(self:rowBand(row, row_h, y), row_h)
-            add(LineWidget:new{
-                    background = GREY,
-                    dimen = Geom:new{ w = w, h = Size.line.thin } },
-                Size.line.thin)
-        end
+    -- One column if it fits; otherwise (landscape) the groups are split
+    -- into two balanced columns rather than running off the bottom.
+    local groups = self:groups()
+    local function groupHeight(group)
+        return header_h + #group[2] * (row_h + Size.line.thin)
     end
+    local total = 0
+    for _, group in ipairs(groups) do total = total + groupHeight(group) end
+    local room = h - y - tabs_h - tabs_margin
+    local columns = { groups }
+    if total > room then
+        local left, right, acc = {}, {}, 0
+        for _, group in ipairs(groups) do
+            if acc + groupHeight(group) / 2 <= total / 2 then
+                table.insert(left, group)
+                acc = acc + groupHeight(group)
+            else
+                table.insert(right, group)
+            end
+        end
+        columns = { left, right }
+    end
+
+    local col_w = math.floor(w / #columns)
+    local row = HorizontalGroup:new{ align = "top" }
+    local col_h = 0
+    for index, list in ipairs(columns) do
+        local x = (index - 1) * col_w
+        local cy = y
+        local column = VerticalGroup:new{ align = "left" }
+        local function put(widget, height)
+            table.insert(column, widget)
+            cy = cy + height
+        end
+        for _index, group in ipairs(list) do
+            put(LeftContainer:new{
+                dimen = Geom:new{ w = col_w, h = header_h },
+                HorizontalGroup:new{
+                    HorizontalSpan:new{ width = self.gutter },
+                    text(group[1]:upper(), "infont", 10, GREY),
+                },
+            }, header_h)
+            for _i, item in ipairs(group[2]) do
+                put(self:rowBand(item, row_h, cy, x, col_w), row_h)
+                put(LineWidget:new{
+                        background = GREY,
+                        dimen = Geom:new{ w = col_w, h = Size.line.thin } },
+                    Size.line.thin)
+            end
+        end
+        table.insert(row, column)
+        col_h = math.max(col_h, cy - y)
+    end
+    add(row, col_h)
 
     -- push the tabs to the bottom
     local filler = h - y - tabs_h - tabs_margin
@@ -272,8 +309,9 @@ function SettingsScreen:build()
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
 end
 
-function SettingsScreen:rowBand(row, h, band_y)
-    local w = self.screen_w
+function SettingsScreen:rowBand(row, h, band_y, band_x, w)
+    band_x = band_x or 0
+    w = w or self.screen_w
     local right
     if row.key ~= nil then
         right = toggle(Settings:get(row.key))
@@ -284,14 +322,14 @@ function SettingsScreen:rowBand(row, h, band_y)
                      math.floor(w * 0.45))
     end
     local right_w = right:getSize().w
-    local label_w = w - 2 * self.gutter - right_w - Size.padding.large
+    local label_w = w - 2 * self.gutter - right_w - Dim.pad.large
 
     local action = row.action
     if action then
-        self:zone(0, band_y, w, h, action)
+        self:zone(band_x, band_y, w, h, action)
     elseif row.key then
         local key = row.key
-        self:zone(0, band_y, w, h, function()
+        self:zone(band_x, band_y, w, h, function()
             Settings:toggle(key)
             self:rebuild()
         end)
@@ -307,7 +345,7 @@ function SettingsScreen:rowBand(row, h, band_y)
                 text(row.label, "cfont", 13, BLACK, label_w),
             },
             RightContainer:new{
-                dimen = Geom:new{ w = right_w + Size.padding.large, h = h },
+                dimen = Geom:new{ w = right_w + Dim.pad.large, h = h },
                 right,
             },
             HorizontalSpan:new{ width = self.gutter },

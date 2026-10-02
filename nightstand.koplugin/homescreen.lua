@@ -32,6 +32,7 @@ local Books = require("books")
 local TabBar = require("tabbar")
 local CoverCache = require("covercache")
 local Settings = require("settings")
+local Dim = require("dim")
 local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
@@ -76,7 +77,7 @@ local HomeScreen = InputContainer:extend{
 local function text(str, face_name, size, fg, max_width)
     return TextWidget:new{
         text = str or "",
-        face = Font:getFace(face_name, size),
+        face = Dim.face(face_name, size),
         fgcolor = fg or BLACK,
         max_width = max_width,
     }
@@ -126,9 +127,8 @@ end
 function HomeScreen:recompute()
     self.shown = self:visibleEntries()
     local area_w = self.screen_w - 2 * self.gutter
-    local grid_h = self.screen_h * (1 - BAND.status - BAND.hero - BAND.head
-                                      - BAND.pager - BAND.tabs)
-    self.row_gap = Screen:scaleBySize(10)
+    local grid_h = self:gridHeight()
+    self.row_gap = Dim.px(10)
     self.cols, self.cover_w, self.gap = self:metrics(area_w, 163)
     local cell_h = math.floor(self.cover_w * 1.5) + self:captionHeight()
     self.rows = math.max(1, math.floor((grid_h + self.row_gap) / (cell_h + self.row_gap)))
@@ -142,8 +142,8 @@ end
 --- tablet lands on four and an 824 px phone on three; the covers are then
 --- sized to fill the row exactly, leaving only a thin gap between them.
 function HomeScreen:metrics(area_w, target_dp)
-    local gap = Screen:scaleBySize(8)
-    local cols = math.max(2, math.floor(area_w / Screen:scaleBySize(target_dp) + 0.5))
+    local gap = Dim.px(8)
+    local cols = math.max(2, math.floor(area_w / Dim.px(target_dp) + 0.5))
     local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
     return cols, cover_w, gap
 end
@@ -179,18 +179,40 @@ end
 --- Layout B: a tall continue card over labelled shelves of bare covers.
 function HomeScreen:buildShelf()
     local w, h = self.screen_w, self.screen_h
-    local status_h = math.floor(h * 0.034)
+    local status_h = Dim.px(27)
     local tabs_h = self:tabsHeight()
     local tabs_margin = self:tabsMargin()
 
-    local shelves = {}
+    local all = {}
     for _, shelf in ipairs(Books:shelves(self.entries, self.current)) do
-        if #shelf.books > 0 then table.insert(shelves, shelf) end
+        if #shelf.books > 0 then table.insert(all, shelf) end
     end
 
-    local count = math.max(1, math.min(#shelves, self:shelfCount()))
-    local cols, cover_w, each, hero_h = self:shelfPlan(count, status_h,
-                                                       tabs_h + tabs_margin)
+    -- A book shows up once on the home screen: later shelves skip covers an
+    -- earlier one already shows. That can empty a shelf, which changes the
+    -- plan, so plan, de-duplicate, and plan again with what is left.
+    local function distinct(cols)
+        local seen, out = {}, {}
+        for _, shelf in ipairs(all) do
+            local books = {}
+            for _, book in ipairs(shelf.books) do
+                if not seen[book] then table.insert(books, book) end
+            end
+            if #books > 0 then
+                for i = 1, math.min(cols, #books) do seen[books[i]] = true end
+                table.insert(out, { label = shelf.label, books = books, total = #shelf.books })
+            end
+        end
+        return out
+    end
+
+    local footer_h = tabs_h + tabs_margin
+    local count, cols, cover_w, each, hero_h = self:shelfPlan(math.max(1, #all), status_h, footer_h)
+    local shelves = distinct(cols)
+    if #shelves < count then
+        count, cols, cover_w, each, hero_h = self:shelfPlan(math.max(1, #shelves), status_h, footer_h)
+        shelves = distinct(cols)
+    end
     self.strip_cover_w = cover_w
     self.strip_cols = cols
 
@@ -252,60 +274,57 @@ function HomeScreen:labelHeight()
     return height
 end
 
-function HomeScreen:shelfCount()
-    return self.screen_w >= self.screen_h and 1 or 2
-end
-
---- Cover size for the shelves: the height each shelf gets decides how tall a
---- cover may be, the width then decides how many fit, and the covers are
---- widened back out so the row ends flush with both margins.
-function HomeScreen:stripMetrics(strips_h, count)
-    local area_w = self.screen_w - 2 * self.gutter
-    local gap = Screen:scaleBySize(8)
-    local chrome = self:labelHeight() + Size.padding.default + Size.padding.large
-    local strip_h = math.floor(strips_h / count)
-    local cover_h_max = strip_h - chrome
-    local widest = math.max(Screen:scaleBySize(60), math.floor(cover_h_max / 1.5))
-    -- round the column count up, so filling the width can only shrink a cover
-    local cols = math.max(2, math.ceil((area_w + gap) / (widest + gap)))
-    local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
-    return cols, cover_w, gap, strip_h
-end
-
---- Works out the shelf cover size, and what is left for the hero.
+--- Works out how many shelves, how many covers per shelf, and what is left
+--- for the hero.
 ---
 --- Shelves take exactly the height they need and the slack goes to the hero,
---- because a 2:3 cover rarely divides the space evenly and dead air under the
---- last shelf is worse than a taller continue card. Columns start low -- the
---- largest shelf covers -- and step up until the hero's own cover is bigger
---- than a shelf cover, which is what keeps the continue card reading as the
---- main thing on the screen. In landscape that trade lands on one more book
---- per shelf and a shorter shelf.
-function HomeScreen:shelfPlan(count, status_h, footer_h)
+--- because a 2:3 cover rarely divides the space evenly. Every combination of
+--- shelf count and column count is tried; a plan is valid when shelf covers
+--- stay legible and the hero's cover is bigger than a shelf cover, which is
+--- what keeps the continue card reading as the main thing on the screen.
+--- Among valid plans the hero should take about its target share of the
+--- height -- a third in portrait, half in landscape, where it was liked big --
+--- and within that tolerance larger covers win. A tall phone therefore gets
+--- a third shelf rather than a hero that swallows half the screen.
+function HomeScreen:shelfPlan(max_count, status_h, footer_h)
     local area_w = self.screen_w - 2 * self.gutter
-    local gap = Screen:scaleBySize(8)
-    local chrome = self:labelHeight() + Size.padding.default + Size.padding.large
+    local gap = Dim.px(8)
+    local chrome = self:labelHeight() + Dim.pad.default + Dim.pad.large
     local available = self.screen_h - status_h - footer_h
-    local floor_w = Screen:scaleBySize(60)
-    local fallback
+    local smallest = Dim.px(70)
+    local landscape = self.screen_w > self.screen_h
+    local target = landscape and 0.5 or 0.3
+    local tolerance = 0.08
 
-    for cols = 3, 10 do
-        local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
-        if cover_w < floor_w then break end
-        local each = chrome + math.floor(cover_w * 1.5)
-        local hero_h = available - count * each
-        if hero_h > 0 then
-            fallback = fallback or { cols, cover_w, each, hero_h }
-            -- heroCoverWidth mirrors what heroBand will do with that height
-            if self:heroCoverWidth(hero_h) > cover_w then
-                return cols, cover_w, each, hero_h
+    local plans = {}
+    for count = 1, math.min(max_count, 4) do
+        for cols = 3, 10 do
+            local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
+            if cover_w < smallest then break end
+            local each = chrome + math.floor(cover_w * 1.5)
+            local hero_h = available - count * each
+            if hero_h > 0 and self:heroCoverWidth(hero_h) > cover_w then
+                table.insert(plans, { count = count, cols = cols, cover_w = cover_w,
+                                      each = each, hero_h = hero_h,
+                                      off = math.abs(hero_h / available - target) })
             end
         end
     end
-    if fallback then return fallback[1], fallback[2], fallback[3], fallback[4] end
+
+    local best
+    for _, plan in ipairs(plans) do
+        if plan.off <= tolerance then
+            if not best or best.off > tolerance or plan.cover_w > best.cover_w then best = plan end
+        elseif not best or (best.off > tolerance and plan.off < best.off) then
+            best = plan
+        end
+    end
+    if best then return best.count, best.cols, best.cover_w, best.each, best.hero_h end
+
+    -- nothing satisfies the hero rule (a very short screen): one modest shelf
     local cover_w = math.floor((area_w - 3 * gap) / 4)
     local each = chrome + math.floor(cover_w * 1.5)
-    return 4, cover_w, each, available - count * each
+    return 1, 4, cover_w, each, math.max(0, available - each)
 end
 
 -- Kept in step with heroBand's own padding; the hero cover is sized from
@@ -319,7 +338,7 @@ end
 
 function HomeScreen:stripBand(shelf, h, band_y)
     local w = self.screen_w
-    local gap = Screen:scaleBySize(8)
+    local gap = Dim.px(8)
     local cover_w = self.strip_cover_w
     local cols = self.strip_cols
     local cover_h = math.floor(cover_w * 1.5)
@@ -328,12 +347,12 @@ function HomeScreen:stripBand(shelf, h, band_y)
     local header = HorizontalGroup:new{
         align = "bottom",
         text(shelf.label:upper(), "infont", 11, GREY),
-        hspan(Size.padding.default),
-        text(T("(%1)", #shelf.books), "infont", 10, GREY),
+        hspan(Dim.pad.default),
+        text(T("(%1)", shelf.total or #shelf.books), "infont", 10, GREY),
     }
 
     local row = HorizontalGroup:new{ align = "top" }
-    local content_h = label_h + Size.padding.default + cover_h
+    local content_h = label_h + Dim.pad.default + cover_h
     local top = band_y + math.floor((h - content_h) / 2)
     for index = 1, cols do
         local entry = shelf.books[index]
@@ -341,7 +360,7 @@ function HomeScreen:stripBand(shelf, h, band_y)
         if entry then
             table.insert(row, self:coverTile(entry, cover_w, cover_h, false, true))
             self:zone(self.gutter + (index - 1) * (cover_w + gap),
-                      top + label_h + Size.padding.default,
+                      top + label_h + Dim.pad.default,
                       cover_w, cover_h,
                       function() self:openBook(entry) end)
         else
@@ -351,13 +370,15 @@ function HomeScreen:stripBand(shelf, h, band_y)
 
     local inner = VerticalGroup:new{ align = "left" }
     table.insert(inner, header)
-    table.insert(inner, VerticalSpan:new{ width = Size.padding.default })
+    table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
     table.insert(inner, row)
     return band(w, h, self.gutter, inner)
 end
 
-function HomeScreen:buildGrid()
-    local w, h = self.screen_w, self.screen_h
+--- Band heights for the grid layout; recompute() sizes the grid from the
+--- same numbers build draws with, so the rows always fit.
+function HomeScreen:gridHeights()
+    local h = self.screen_h
     local heights = {}
     for key, fraction in pairs(BAND) do
         heights[key] = math.floor(h * fraction)
@@ -366,6 +387,16 @@ function HomeScreen:buildGrid()
     heights.tabs_margin = self:tabsMargin()
     heights.grid = h - heights.status - heights.hero - heights.head
                      - heights.pager - heights.tabs - heights.tabs_margin
+    return heights
+end
+
+function HomeScreen:gridHeight()
+    return self:gridHeights().grid
+end
+
+function HomeScreen:buildGrid()
+    local w, h = self.screen_w, self.screen_h
+    local heights = self:gridHeights()
 
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -447,48 +478,32 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     local meta_w = self.screen_w - 2 * self.gutter - cover_w - self.gutter
 
     local percent = entry.percent or 0
-    local meta = VerticalGroup:new{ align = "left" }
-    table.insert(meta, VerticalSpan:new{ width = Size.padding.small })
-    table.insert(meta, TextBoxWidget:new{
-        text = entry.title, face = Font:getFace(SERIF, 22),
+
+    -- The column has inner_h to fill. Title, author and progress are built
+    -- first; the blurb gets whatever height is left, and when even those
+    -- don't fit, the least important lines go first.
+    local title = TextBoxWidget:new{
+        text = entry.title, face = Dim.face(SERIF, 22),
         width = meta_w, alignment = "left",
-    })
-    if entry.author and entry.author ~= "" then
-        table.insert(meta, text(entry.author, "cfont", 14, GREY, meta_w))
-    end
-    table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
-    if with_blurb and entry.summary then
-        -- Only reserve the full allowance when the text actually needs it,
-        -- otherwise a two-line blurb leaves a hole above the progress bar.
-        local face = Font:getFace("cfont", 13)
-        local cap = math.floor(h * 0.26)
-        local blurb = TextBoxWidget:new{
-            text = entry.summary, face = face,
-            width = meta_w, alignment = "left", fgcolor = GREY,
+    }
+    local one_line = text("Ag", SERIF, 22):getSize().h
+    if title:getSize().h > 2 * one_line + 2 then
+        title:free()
+        title = TextBoxWidget:new{
+            text = entry.title, face = Dim.face(SERIF, 22), width = meta_w, alignment = "left",
+            height = 2 * one_line, height_overflow_show_ellipsis = true,
         }
-        local overflows = blurb:getSize().h > cap
-        if overflows then
-            blurb:free()
-            blurb = TextBoxWidget:new{
-                text = entry.summary, face = face,
-                width = meta_w, alignment = "left", fgcolor = GREY,
-                height = cap, height_overflow_show_ellipsis = true,
-            }
-        end
-        table.insert(meta, blurb)
-        if overflows then
-            self.more_widget = text(_("more"), "infont", 12, BLACK)
-            table.insert(meta, self.more_widget)
-        end
-        table.insert(meta, VerticalSpan:new{ width = Size.padding.default })
     end
+    local author = entry.author and entry.author ~= "" and text(entry.author, "cfont", 14, GREY, meta_w)
+
+    local progress = {}
     if self.fresh then
-        table.insert(meta, text(_("Not started"), "infont", 15, GREY))
+        table.insert(progress, text(_("Not started"), "infont", 15, GREY))
     else
-        table.insert(meta, text(string.format("%d%% read", math.floor(percent * 100 + 0.5)),
-                                "infont", 15))
-        table.insert(meta, ProgressWidget:new{
-            width = meta_w, height = math.floor(h * 0.035),
+        table.insert(progress, text(string.format("%d%% read", math.floor(percent * 100 + 0.5)),
+                                    "infont", 15))
+        table.insert(progress, ProgressWidget:new{
+            width = meta_w, height = Dim.px(7),
             percentage = percent, bordersize = 0,
             fillcolor = BLACK, bgcolor = GREY,
         })
@@ -502,9 +517,77 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
                                   os.date("%d %b %H:%M", entry.synced_at or os.time())))
         end
         if #parts > 0 then
-            table.insert(meta, text(table.concat(parts, "  ·  "), "infont", 12, GREY, meta_w))
+            local joined = text(table.concat(parts, "  ·  "), "infont", 12, GREY)
+            if joined:getSize().w <= meta_w then
+                table.insert(progress, joined)
+            else
+                -- too long for one line on a narrow screen: one fact per line
+                joined:free()
+                for _, part in ipairs(parts) do
+                    table.insert(progress, text(part, "infont", 12, GREY, meta_w))
+                end
+            end
         end
     end
+
+    local function height(list)
+        local sum = 0
+        for _, widget in ipairs(list) do sum = sum + widget:getSize().h end
+        return sum
+    end
+    local gap = Dim.pad.default
+    local fixed = Dim.pad.small + title:getSize().h + (author and author:getSize().h or 0)
+                  + gap + height(progress)
+    -- out of room: drop reading details from the bottom, then the author
+    while fixed > inner_h and #progress > 2 do
+        fixed = fixed - table.remove(progress):getSize().h
+    end
+    if fixed > inner_h and author then
+        fixed = fixed - author:getSize().h
+        author = nil
+    end
+
+    local blurb, overflows
+    if with_blurb and entry.summary then
+        local face = Dim.face("cfont", 13)
+        local more_h = text(_("more"), "infont", 12, BLACK):getSize().h
+        local line_h = text("Ag", "cfont", 13):getSize().h
+        local room = inner_h - fixed - gap
+        blurb = TextBoxWidget:new{
+            text = entry.summary, face = face,
+            width = meta_w, alignment = "left", fgcolor = GREY,
+        }
+        if blurb:getSize().h > room then
+            blurb:free()
+            -- whole lines only, and leave room for the "more" under them
+            local lines = math.floor((room - more_h) / line_h)
+            if lines >= 1 then
+                blurb = TextBoxWidget:new{
+                    text = entry.summary, face = face,
+                    width = meta_w, alignment = "left", fgcolor = GREY,
+                    height = lines * line_h, height_overflow_show_ellipsis = true,
+                }
+                overflows = true
+            else
+                blurb = nil
+            end
+        end
+    end
+
+    local meta = VerticalGroup:new{ align = "left" }
+    table.insert(meta, VerticalSpan:new{ width = Dim.pad.small })
+    table.insert(meta, title)
+    if author then table.insert(meta, author) end
+    table.insert(meta, VerticalSpan:new{ width = gap })
+    if blurb then
+        table.insert(meta, blurb)
+        if overflows then
+            self.more_widget = text(_("more"), "infont", 12, BLACK)
+            table.insert(meta, self.more_widget)
+        end
+        table.insert(meta, VerticalSpan:new{ width = gap })
+    end
+    for _, widget in ipairs(progress) do table.insert(meta, widget) end
 
     if self.more_widget then
         -- The hero is centred in its band, and the meta column starts at the
@@ -534,7 +617,7 @@ function HomeScreen:filterCell(spec, active)
         background = active and BLACK or WHITE,
         color = BLACK,
         bordersize = Size.border.thin,
-        padding = Size.padding.small,
+        padding = Dim.pad.small,
         margin = 0,
         radius = 0,
         text(spec.label, "infont", 11, active and WHITE or BLACK),
@@ -665,7 +748,7 @@ function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
             background = solid and BLACK or WHITE,
             color = BLACK,
             bordersize = solid and 0 or Size.border.thin,
-            padding = Size.padding.tiny,
+            padding = Dim.pad.tiny,
             margin = 0,
             radius = 0,
             text(tag, "infont", 10, solid and WHITE or BLACK),
@@ -677,7 +760,7 @@ function HomeScreen:coverTile(entry, w, h, no_tag, hide_new)
     if not entry.on_device then
         -- No backdrop: the icon carries its own white halo, drawn into the
         -- SVG, so it stays readable over dark and light cover art alike.
-        local icon_h = math.max(Screen:scaleBySize(10), math.floor(w * 0.10))
+        local icon_h = math.max(Dim.px(10), math.floor(w * 0.10))
         local badge = ImageWidget:new{
             file = CLOUD_ICON,
             width = math.floor(icon_h * CLOUD_RATIO), height = icon_h,
@@ -694,18 +777,26 @@ end
 
 function HomeScreen:placeholderCover(entry, w, h)
     local border = Size.border.thin
-    local pad = Size.padding.small
+    local pad = Dim.pad.small
     local inner_w = w - 2 * border - 2 * pad
+    local inner_h = h - 2 * border - 2 * pad
+    local function title(cap)
+        return TextBoxWidget:new{
+            text = entry.title, face = Dim.face(SERIF, 13),
+            width = inner_w, alignment = "center",
+            height = cap, height_overflow_show_ellipsis = cap ~= nil,
+        }
+    end
+    -- a title longer than the cover is cut, not spilled; short ones stay centred
+    local label = title()
+    if label:getSize().h > inner_h then
+        label:free()
+        label = title(inner_h)
+    end
     return FrameContainer:new{
         background = WHITE, color = GREY, bordersize = border,
         padding = pad, margin = 0, radius = 0,
-        CenterContainer:new{
-            dimen = Geom:new{ w = inner_w, h = h - 2 * border - 2 * pad },
-            TextBoxWidget:new{
-                text = entry.title, face = Font:getFace(SERIF, 13),
-                width = inner_w, alignment = "center",
-            },
-        },
+        CenterContainer:new{ dimen = Geom:new{ w = inner_w, h = inner_h }, label },
     }
 end
 

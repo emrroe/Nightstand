@@ -25,6 +25,7 @@ local HomeScreen = require("homescreen")
 local Library = require("library")
 local Settings = require("settings")
 local TabBar = require("tabbar")
+local Dim = require("dim")
 local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
@@ -95,7 +96,7 @@ function LibraryScreen:recompute()
 
     self.grid_h = self.screen_h - self:titleHeight() - self:chipsHeight()
                   - self:pagerHeight() - TabBar.height() - TabBar.margin()
-    self:planGrid(self.grid_h - Size.line.thin - Screen:scaleBySize(10))
+    self:planGrid(self.grid_h - Size.line.thin - Dim.px(10))
     self.per_page = self.cols * self.rows
     self.pages = math.max(1, math.ceil(#self.items / self.per_page))
     if self.page > self.pages then self.page = self.pages end
@@ -108,11 +109,11 @@ end
 --- a legible physical size; leftover height is shared between the rows.
 function LibraryScreen:planGrid(grid_h)
     local area_w = self.screen_w - 2 * self.gutter
-    local gap = Screen:scaleBySize(8)
-    local min_gap = Screen:scaleBySize(10)
+    local gap = Dim.px(8)
+    local min_gap = Dim.px(10)
     local caption_h = self:captionHeight()
     -- about 21 mm on any screen; thinner than that and covers stop reading
-    local smallest = Screen:scaleByDPI(125)
+    local smallest = Dim.px(100)
     local best
     local function consider(rows, cols, cover_w)
         if cols < 2 or cover_w < smallest then return end
@@ -141,9 +142,9 @@ function LibraryScreen:planGrid(grid_h)
     self.row_gap = min_gap + (best.rows > 1 and math.floor(slack / (best.rows - 1)) or 0)
 end
 
-function LibraryScreen:titleHeight() return Screen:scaleBySize(46) end
-function LibraryScreen:chipsHeight() return Screen:scaleBySize(36) end
-function LibraryScreen:pagerHeight() return Screen:scaleBySize(26) end
+function LibraryScreen:titleHeight() return Dim.px(46) end
+function LibraryScreen:chipsHeight() return Dim.px(36) end
+function LibraryScreen:pagerHeight() return Dim.px(26) end
 
 -- layout ------------------------------------------------------------------------
 
@@ -158,7 +159,7 @@ function LibraryScreen:build()
 
     add(self:titleBand(self:titleHeight(), y), self:titleHeight())
     add(self:chipsBand(self:chipsHeight(), y), self:chipsHeight())
-    local top_gap = Screen:scaleBySize(10)
+    local top_gap = Dim.px(10)
     add(rule(w), Size.line.thin)
     add(VerticalSpan:new{ width = top_gap }, top_gap)
 
@@ -184,7 +185,7 @@ function LibraryScreen:control(label, value, mark)
     return HorizontalGroup:new{
         align = "center",
         text(label, "infont", 11, GREY),
-        hspan(Size.padding.large),
+        hspan(Dim.pad.large),
         text(value .. " " .. mark, "infont", 12, BLACK),
     }
 end
@@ -197,14 +198,14 @@ function LibraryScreen:titleBand(h, band_y)
     local show = Library.find(Library.GROUPS, self.group)
     local sort_c = self:control(_("Sort"), sort.label, self.descending and "↓" or "↑")
     local show_c = self:control(_("Show"), show.label, "▾")
-    local sep = Screen:scaleBySize(20)
+    local sep = Dim.px(20)
     local sort_w, show_w = sort_c:getSize().w, show_c:getSize().w
     local right_w = show_w + sep + sort_w
 
     local left
     if self.open_group then
         local back = text("‹ " .. show.label, "infont", 13, GREY)
-        local room = math.max(Screen:scaleBySize(40), inner_w - right_w - sep - back:getSize().w - self.gutter)
+        local room = math.max(Dim.px(40), inner_w - right_w - sep - back:getSize().w - self.gutter)
         left = HorizontalGroup:new{
             align = "center",
             back,
@@ -215,7 +216,7 @@ function LibraryScreen:titleBand(h, band_y)
         left = HorizontalGroup:new{
             align = "center",
             text(_("Library"), SERIF, 20),
-            hspan(Size.padding.large),
+            hspan(Dim.pad.large),
             text(self:countLabel(), "infont", 12, GREY),
         }
     end
@@ -251,7 +252,7 @@ end
 function LibraryScreen:chipsBand(h, band_y)
     local strip = HorizontalGroup:new{ align = "center" }
     local x = self.gutter
-    local space = Screen:scaleBySize(6)
+    local space = Dim.px(6)
     for index, spec in ipairs(Library.FILTERS) do
         if index > 1 then
             table.insert(strip, hspan(space))
@@ -275,10 +276,10 @@ function LibraryScreen:filterCell(spec, active)
         background = active and BLACK or WHITE,
         color = BLACK,
         bordersize = Size.border.thin,
-        padding = Size.padding.default,
-        padding_top = Size.padding.small, padding_bottom = Size.padding.small,
+        padding = Dim.pad.default,
+        padding_top = Dim.pad.small, padding_bottom = Dim.pad.small,
         margin = 0,
-        radius = Screen:scaleBySize(4),
+        radius = Dim.px(4),
         text(spec.label, "infont", 12, active and WHITE or BLACK),
     }
 end

@@ -19,6 +19,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Hardcover = require("hardcover")
+local Dim = require("dim")
 local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
@@ -103,8 +104,8 @@ end
 
 local function line(str, face, size, colour, width)
     return CenterContainer:new{
-        dimen = Geom:new{ w = width, h = Font:getFace(face, size).size * 1.6 },
-        TextWidget:new{ text = str, face = Font:getFace(face, size), fgcolor = colour or BLACK },
+        dimen = Geom:new{ w = width, h = Dim.face(face, size).size * 1.6 },
+        TextWidget:new{ text = str, face = Dim.face(face, size), fgcolor = colour or BLACK },
     }
 end
 
@@ -115,38 +116,38 @@ function HardcoverLink:build()
     local group = VerticalGroup:new{ align = "center" }
 
     table.insert(group, line(_("Connect Hardcover"), "NotoSerif-Bold.ttf", 22, BLACK, w))
-    table.insert(group, VerticalSpan:new{ width = Screen:scaleBySize(12) })
+    table.insert(group, VerticalSpan:new{ width = Dim.px(12) })
 
     local device = self.device
     if device and self.state == "waiting" then
         table.insert(group, TextBoxWidget:new{
             text = _("Scan the code with your phone, or go to the address below and enter the code."),
-            face = Font:getFace("cfont", 13),
+            face = Dim.face("cfont", 13),
             width = inner,
             alignment = "center",
         })
-        table.insert(group, VerticalSpan:new{ width = Screen:scaleBySize(16) })
+        table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
         -- QR needs a white quiet zone around it to scan reliably
         table.insert(group, FrameContainer:new{
             background = Blitbuffer.COLOR_WHITE,
             bordersize = 0,
-            padding = Screen:scaleBySize(10),
+            padding = Dim.px(10),
             QRWidget:new{
                 text = device.verification_uri_complete or device.verification_uri,
                 width = qr_size,
                 height = qr_size,
             },
         })
-        table.insert(group, VerticalSpan:new{ width = Screen:scaleBySize(16) })
+        table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
         table.insert(group, line(device.verification_uri, "infont", 14, GREY, w))
         table.insert(group, line(device.user_code, "infont", 30, BLACK, w))
-        table.insert(group, VerticalSpan:new{ width = Screen:scaleBySize(16) })
+        table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
     else
         table.insert(group, VerticalSpan:new{ width = qr_size * 0.5 })
     end
 
     table.insert(group, line(self:status(), "cfont", 13, GREY, w))
-    table.insert(group, VerticalSpan:new{ width = Screen:scaleBySize(20) })
+    table.insert(group, VerticalSpan:new{ width = Dim.px(20) })
 
     local buttons = VerticalGroup:new{ align = "center" }
     -- on a phone the QR code is on the very screen that would scan it
@@ -158,7 +159,7 @@ function HardcoverLink:build()
                 Device:openLink(device.verification_uri_complete or device.verification_uri)
             end,
         })
-        table.insert(buttons, VerticalSpan:new{ width = Screen:scaleBySize(10) })
+        table.insert(buttons, VerticalSpan:new{ width = Dim.px(10) })
     end
     if self.state == "expired" or self.state == "error" then
         table.insert(buttons, Button:new{
@@ -166,7 +167,7 @@ function HardcoverLink:build()
             width = math.floor(w * 0.5),
             callback = function() self:restart() end,
         })
-        table.insert(buttons, VerticalSpan:new{ width = Screen:scaleBySize(10) })
+        table.insert(buttons, VerticalSpan:new{ width = Dim.px(10) })
     end
     if self.state ~= "linked" then
         table.insert(buttons, Button:new{

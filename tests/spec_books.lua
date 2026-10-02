@@ -131,6 +131,31 @@ T.describe("reading positions", function()
     end)
 end)
 
+T.describe("next in series", function()
+    local function b(title, series, index, status, last_read)
+        return { title = title, series = series, series_index = index, status = status, last_read = last_read }
+    end
+    T.it("the first untouched book after the furthest one read", function()
+        local Books = require("books")
+        local list = { b("S1", "S", 1, "complete", 10), b("S2", "S", 2, "complete", 20),
+                       b("S2.5", "S", 2.5, "new"), b("S3", "S", 3, "new") }
+        T.eq(T.titles(Books:nextInSeries(list)), { "S2.5" })
+    end)
+    T.it("nothing for unstarted series, finished series, or the hero itself", function()
+        local Books = require("books")
+        local hero = b("W2", "W", 2, "new")
+        local list = { b("U1", "U", 1, "new"), b("F1", "F", 1, "complete"),
+                       b("W1", "W", 1, "reading", 5), hero }
+        T.eq(#Books:nextInSeries(list, hero), 0)
+    end)
+    T.it("most recently read series first", function()
+        local Books = require("books")
+        local list = { b("A1", "A", 1, "complete", 10), b("A2", "A", 2, "new"),
+                       b("B1", "B", 1, "complete", 99), b("B2", "B", 2, "new") }
+        T.eq(T.titles(Books:nextInSeries(list)), { "B2", "A2" })
+    end)
+end)
+
 T.describe("downloads", function()
     T.it("a server book lands as Author/Title - Author.epub and becomes local", function()
         local dir = setup({}, { { id = 3, title = "Dune", authors = { "Frank Herbert", "Someone Else" } } })

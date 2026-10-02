@@ -28,7 +28,7 @@ local T = { passed = 0, failed = 0, failures = {}, path = {} }
 -- Every module of the plugin keeps state at module level (caches, open
 -- settings files), so each test gets fresh copies and an empty profile.
 T.PLUGIN_MODULES = {
-    "settings", "catalog", "books", "availability", "progress", "covercache",
+    "dim", "settings", "catalog", "books", "availability", "progress", "covercache",
     "download", "library", "hardcover", "hardcoverlink", "homescreen",
     "libraryscreen", "settingsscreen", "tabbar", "main",
 }
