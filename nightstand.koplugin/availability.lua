@@ -65,15 +65,6 @@ function Availability:ensure(root)
     return self.map
 end
 
---- Absolute path for a checksum, or nil when the book is server-only.
-function Availability:pathFor(checksum)
-    return self.map and self.map[checksum] or nil
-end
-
-function Availability:isLocal(checksum)
-    return self:pathFor(checksum) ~= nil
-end
-
 function Availability:count()
     if not self.map then return 0 end
     local n = 0
@@ -81,14 +72,9 @@ function Availability:count()
     return n
 end
 
---- Called after a download or a delete, so the next lookup is correct
---- without paying for a full rescan.
+--- Called after a download, so the next lookup is right without a rescan.
 function Availability:add(checksum, path)
     if self.map and checksum then self.map[checksum] = path end
-end
-
-function Availability:remove(checksum)
-    if self.map and checksum then self.map[checksum] = nil end
 end
 
 function Availability:invalidate()

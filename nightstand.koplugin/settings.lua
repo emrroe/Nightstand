@@ -18,10 +18,7 @@ Settings.DEFAULTS = {
     password = "",
     books_dir = "",
     refresh_on_wake = true,
-    captions = true,
     time_remaining = true,
-    grid_cols = 4,
-    grid_rows = 2,
     wifi_only = true,
     delete_when_finished = false,
 }

@@ -128,20 +128,4 @@ function CoverCache:get(entry, width, height)
     return nil
 end
 
-function CoverCache:clear()
-    for _, bb in pairs(self.cache) do
-        if bb and bb.free then bb:free() end
-    end
-    self.cache, self.misses = {}, {}
-end
-
---- Number of covers held on disk.
-function CoverCache:storedCount()
-    local n = 0
-    for name in lfs.dir(cacheDir()) do
-        if name:match("%.jpg$") then n = n + 1 end
-    end
-    return n
-end
-
 return CoverCache
