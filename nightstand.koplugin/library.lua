@@ -10,10 +10,10 @@ local Library = {}
 
 -- ids are written to settings; labels are what the menus show
 Library.SORTS = {
-    { id = "recent",    label = "Recently read", desc = true },
+    { id = "recent",    label = "Recently read", short = "Recent", desc = true },
     { id = "title",     label = "Title" },
     { id = "author",    label = "Author" },
-    { id = "added",     label = "Date added",    desc = true },
+    { id = "added",     label = "Date added",    short = "Added", desc = true },
     { id = "published", label = "Published",     desc = true },
     { id = "series",    label = "Series" },
 }

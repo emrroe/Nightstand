@@ -90,39 +90,36 @@ function LibraryScreen:captionHeight()
     return W.lineHeight(SERIF, 12) + W.lineHeight("infont", 10)
 end
 
+--- Rows and columns for the grid. The width sets the columns -- covers about
+--- 21 mm wide, never fewer than four across -- and the height then takes as
+--- many rows as fit, sharing what is left between them.
 function LibraryScreen:planGrid(grid_h)
     local area_w = self.screen_w - 2 * self.gutter
     local gap = W.GAP
     local min_gap = Dim.px(10)
     local caption_h = self:captionHeight()
-    -- about 21 mm on any screen; thinner than that and covers stop reading
-    local smallest = Dim.px(100)
-    local best
-    local function consider(rows, cols, cover_w)
-        if cols < 2 or cover_w < smallest then return end
-        local used = rows * (W.coverHeight(cover_w) + caption_h) + (rows - 1) * min_gap
-        local count = rows * cols
-        if not best or count > best.count or (count == best.count and used > best.used) then
-            best = { rows = rows, cols = cols, cover_w = cover_w, used = used, count = count }
-        end
+    local cols = math.max(4, math.floor((area_w + gap) / (Dim.px(100) + gap) + 0.5))
+    local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
+    local cell_h = W.coverHeight(cover_w) + caption_h
+    local rows = math.max(1, math.floor((grid_h + min_gap) / (cell_h + min_gap)))
+    -- One more row is worth slightly narrower covers (centred, with a margin)
+    -- rather than a band of empty space; and on a very short screen the one
+    -- row has to shrink to fit at all.
+    local function widthFor(n)
+        return math.floor(((grid_h - (n - 1) * min_gap) / n - caption_h) / W.COVER_ASPECT)
     end
-    for rows = 1, 6 do
-        local cover_h = math.floor((grid_h - (rows - 1) * min_gap) / rows) - caption_h
-        local widest = math.floor(cover_h / W.COVER_ASPECT)
-        if widest < smallest then break end
-        local fit = (area_w + gap) / (widest + gap)
-        local more = math.ceil(fit)
-        consider(rows, more, math.floor((area_w - (more - 1) * gap) / more))
-        local fewer = math.floor(fit)
-        consider(rows, fewer, math.min(widest, math.floor((area_w - (fewer - 1) * gap) / fewer)))
+    if widthFor(rows + 1) >= 0.8 * cover_w then
+        rows = rows + 1
+        cover_w = widthFor(rows)
+    elseif rows * cell_h + (rows - 1) * min_gap > grid_h then
+        cover_w = widthFor(rows)
     end
-    best = best or { rows = 1, cols = 2,
-                     cover_w = math.floor((area_w - gap) / 2), used = grid_h }
-    self.rows, self.cols, self.cover_w, self.gap = best.rows, best.cols, best.cover_w, gap
-    local row_w = best.cols * best.cover_w + (best.cols - 1) * gap
+    cell_h = W.coverHeight(cover_w) + caption_h
+    self.rows, self.cols, self.cover_w, self.gap = rows, cols, cover_w, gap
+    local row_w = cols * cover_w + (cols - 1) * gap
     self.grid_x = self.gutter + math.floor((area_w - row_w) / 2)
-    local slack = math.max(0, grid_h - best.used)
-    self.row_gap = min_gap + (best.rows > 1 and math.floor(slack / (best.rows - 1)) or 0)
+    local slack = math.max(0, grid_h - rows * cell_h - (rows - 1) * min_gap)
+    self.row_gap = min_gap + (rows > 1 and math.floor(slack / (rows - 1)) or 0)
 end
 
 function LibraryScreen:titleHeight() return Dim.px(46) end
@@ -159,12 +156,13 @@ end
 
 --- A control that opens a menu: label, value, and a mark saying what it does.
 function LibraryScreen:control(label, value, mark)
-    return HorizontalGroup:new{
-        align = "center",
-        text(label, "infont", 11, GREY),
-        hspan(Dim.pad.large),
-        text(value .. " " .. mark, "infont", 12, BLACK),
-    }
+    local group = HorizontalGroup:new{ align = "center" }
+    if label then
+        table.insert(group, text(label, "infont", 11, GREY))
+        table.insert(group, hspan(Dim.pad.large))
+    end
+    table.insert(group, text(value .. " " .. mark, "infont", 12, BLACK))
+    return group
 end
 
 function LibraryScreen:titleBand(h, band_y)
@@ -173,9 +171,28 @@ function LibraryScreen:titleBand(h, band_y)
 
     local sort = Library.find(Library.SORTS, self.sort)
     local show = Library.find(Library.GROUPS, self.group)
-    local sort_c = self:control(_("Sort"), sort.label, self.descending and "↓" or "↑")
-    local show_c = self:control(_("Show"), show.label, "▾")
+    local arrow = self.descending and "↓" or "↑"
     local sep = Dim.px(20)
+    local title_w = W.text(_("Library"), SERIF, 20):getSize().w
+
+    -- On a narrow screen the header gives way in steps: first the count, then
+    -- the grey "Show"/"Sort" words, then the long sort name.
+    local steps = {
+        { count = true, labels = true, short = false },
+        { count = false, labels = true, short = false },
+        { count = false, labels = false, short = false },
+        { count = false, labels = false, short = true },
+    }
+    local fit, sort_c, show_c, count_w
+    for _index, step in ipairs(steps) do
+        fit = step
+        local sort_label = step.short and (sort.short or sort.label) or sort.label
+        sort_c = self:control(step.labels and _("Sort") or nil, sort_label, arrow)
+        show_c = self:control(step.labels and _("Show") or nil, show.label, "▾")
+        count_w = step.count and (Dim.pad.large + W.text(self:countLabel(), "infont", 12):getSize().w) or 0
+        local need = title_w + count_w + sep + show_c:getSize().w + sep + sort_c:getSize().w
+        if need <= inner_w then break end
+    end
     local sort_w, show_w = sort_c:getSize().w, show_c:getSize().w
     local right_w = show_w + sep + sort_w
 
@@ -190,12 +207,11 @@ function LibraryScreen:titleBand(h, band_y)
             text(self.open_group, SERIF, 20, BLACK, room),
         }
     else
-        left = HorizontalGroup:new{
-            align = "center",
-            text(_("Library"), SERIF, 20),
-            hspan(Dim.pad.large),
-            text(self:countLabel(), "infont", 12, GREY),
-        }
+        left = HorizontalGroup:new{ align = "center", text(_("Library"), SERIF, 20) }
+        if fit.count then
+            table.insert(left, hspan(Dim.pad.large))
+            table.insert(left, text(self:countLabel(), "infont", 12, GREY))
+        end
     end
 
     -- generous tap targets: the full band height, plus half the gap either side
