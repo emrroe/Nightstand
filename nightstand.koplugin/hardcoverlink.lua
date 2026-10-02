@@ -78,7 +78,7 @@ function HardcoverLink:pollOnce()
         self.message = username and T(_("Connected as @%1"), username) or _("Connected")
         self:rebuild()
         UIManager:scheduleIn(2, function()
-            UIManager:close(self)
+            if not self.closed then UIManager:close(self) end
             if self.on_linked then self.on_linked() end
         end)
         return

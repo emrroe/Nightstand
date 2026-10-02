@@ -387,7 +387,7 @@ function HomeScreen:heroDetails(entry, meta_w)
     if self.fresh then
         table.insert(progress, text(_("Not started"), "infont", 15, GREY))
     else
-        table.insert(progress, text(string.format("%d%% read", math.floor(percent * 100 + 0.5)),
+        table.insert(progress, text(T(_("%1% read"), math.floor(percent * 100 + 0.5)),
                                     "infont", 15))
         table.insert(progress, ProgressWidget:new{
             width = meta_w, height = Dim.px(7),

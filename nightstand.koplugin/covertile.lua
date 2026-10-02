@@ -66,14 +66,15 @@ function CoverTile.new(entry, w, h, opts)
     end
 
     local pad = math.max(2, math.floor(w * 0.04))
-    local tag
+    local tag, kind
     if not opts.no_tag then
         -- an entry can bring its own tag (Discover's "In library"), or none
-        if entry.tag ~= nil then tag = entry.tag or nil else tag = Books:progressTag(entry) end
+        if entry.tag ~= nil then tag = entry.tag or nil else tag, kind = Books:progressTag(entry) end
     end
-    if tag == "New" and opts.hide_new then tag = nil end
+    if kind == "new" and opts.hide_new then tag = nil end
     if tag then
-        local solid = tag ~= "New" and tag ~= "Finished"
+        -- progress is inverted so it stands out; labels stay outlined
+        local solid = kind == "progress"
         local badge = FrameContainer:new{
             background = solid and BLACK or WHITE,
             color = BLACK,

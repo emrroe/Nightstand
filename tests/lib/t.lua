@@ -27,11 +27,11 @@ local T = { passed = 0, failed = 0, failures = {}, path = {} }
 
 -- Every module of the plugin keeps state at module level (caches, open
 -- settings files), so each test gets fresh copies and an empty profile.
-T.PLUGIN_MODULES = {
-    "dim", "settings", "catalog", "books", "availability", "progress", "covercache",
-    "download", "library", "hardcover", "hardcoverlink", "homescreen",
-    "libraryscreen", "settingsscreen", "tabbar", "main", "discover", "discoverscreen", "vendors", "net", "widgets", "covertile", "screen", "bookactions", "background",
-}
+T.PLUGIN_MODULES = {}
+for name in require("libs/libkoreader-lfs").dir(plugin_dir) do
+    local module = name:match("^(.+)%.lua$")
+    if module and module ~= "_meta" then table.insert(T.PLUGIN_MODULES, module) end
+end
 
 function T.settingsDir()
     return DataStorage:getSettingsDir()

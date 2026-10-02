@@ -12,6 +12,8 @@ local Catalog = require("catalog")
 local Progress = require("progress")
 local ReadHistory = require("readhistory")
 
+local _ = require("gettext")
+
 local Books = {}
 
 -- Copied verbatim from the catalogue onto the merged entry.
@@ -76,8 +78,8 @@ local function norm(str)
     return str
 end
 
-local function titleMatches(local_key, key, author, pass)
-    if pass == 1 then return local_key == key end
+--- A file named "<title> <author>" for a catalogue title, the surname present.
+local function titleMatches(local_key, key, author)
     if local_key:sub(1, #key + 1) ~= key .. " " then return false end
     local surname = norm((author or ""):match("^[^,]+") or ""):match("(%S+)$")
     return surname ~= nil and (" " .. local_key .. " "):find(" " .. surname .. " ", 1, true) ~= nil
@@ -98,16 +100,29 @@ function Books:list(books_dir)
     -- is only claimed afterwards, and only when the author's surname is there.
     local catalogue = Catalog:load() or {}
     local claimed = {}
-    for pass = 1, 2 do
-        for index, item in ipairs(catalogue) do
-            local key = norm(item.title)
-            if not claimed[index] and key ~= "" then
-                for _index, candidate in ipairs(locals) do
-                    if not candidate.taken and titleMatches(candidate.key, key, item.author, pass) then
-                        candidate.taken = true
-                        claimed[index] = candidate.entry
-                        break
-                    end
+    -- pass 1 by lookup, so a large library isn't every book against every file
+    local by_key = {}
+    for _index, candidate in ipairs(locals) do
+        by_key[candidate.key] = by_key[candidate.key] or {}
+        table.insert(by_key[candidate.key], candidate)
+    end
+    for index, item in ipairs(catalogue) do
+        for _index, candidate in ipairs(by_key[norm(item.title)] or {}) do
+            if not candidate.taken then
+                candidate.taken = true
+                claimed[index] = candidate.entry
+                break
+            end
+        end
+    end
+    for index, item in ipairs(catalogue) do
+        local key = norm(item.title)
+        if not claimed[index] and key ~= "" then
+            for _index, candidate in ipairs(locals) do
+                if not candidate.taken and titleMatches(candidate.key, key, item.author) then
+                    candidate.taken = true
+                    claimed[index] = candidate.entry
+                    break
                 end
             end
         end
@@ -188,10 +203,11 @@ function Books:current(entries)
 end
 
 --- `New`, `42%` or `Finished` — the tag in the cover's top-right corner.
+--- The second value says which kind of tag it is, for styling.
 function Books:progressTag(entry)
-    if entry.status == "complete" then return "Finished" end
-    if entry.status == "new" or not entry.percent then return "New" end
-    return string.format("%d%%", math.floor(entry.percent * 100 + 0.5))
+    if entry.status == "complete" then return _("Finished"), "finished" end
+    if entry.status == "new" or not entry.percent then return _("New"), "new" end
+    return string.format("%d%%", math.floor(entry.percent * 100 + 0.5)), "progress"
 end
 
 --- Shelves for the stacked home layout. Only non-empty ones are drawn, so a
@@ -210,16 +226,16 @@ function Books:shelves(entries, skip)
     local by_read = function(a, b) return (a.last_read or 0) > (b.last_read or 0) end
 
     return {
-        { label = "Reading now",
+        { label = _("Reading now"),
           books = pick(function(e) return e.status == "reading" end, by_read) },
-        { label = "Next in series", books = self:nextInSeries(entries, skip) },
-        { label = "Recently added",
+        { label = _("Next in series"), books = self:nextInSeries(entries, skip) },
+        { label = _("Recently added"),
           books = pick(function(e) return e.added ~= nil end, by_added) },
-        { label = "On this device",
+        { label = _("On this device"),
           books = pick(function(e) return e.on_device end, by_added) },
-        { label = "Not read yet",
+        { label = _("Not read yet"),
           books = pick(function(e) return e.status == "new" end, by_added) },
-        { label = "Finished",
+        { label = _("Finished"),
           books = pick(function(e) return e.status == "complete" end, by_read) },
     }
 end

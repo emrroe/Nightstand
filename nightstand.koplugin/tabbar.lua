@@ -18,10 +18,10 @@ local Screen = Device.screen
 
 local TabBar = {
     TABS = {
-        { id = "home",     label = "HOME" },
-        { id = "library",  label = "LIBRARY" },
-        { id = "discover", label = "DISCOVER", needs_hardcover = true },
-        { id = "settings", label = "SETTINGS" },
+        { id = "home",     label = _("HOME") },
+        { id = "library",  label = _("LIBRARY") },
+        { id = "discover", label = _("DISCOVER"), needs_hardcover = true },
+        { id = "settings", label = _("SETTINGS") },
     },
 }
 
@@ -64,7 +64,7 @@ function TabBar.build(screen_w, h, band_y, active_id, zone, on_tab)
             -- the rule above the strip is part of the bar's height
             dimen = Geom:new{ w = tab_w, h = h - marker_h - Size.line.thin },
             TextWidget:new{
-                text = _(tab.label),
+                text = tab.label,
                 face = Dim.face("infont", 11),
                 fgcolor = active and Blitbuffer.COLOR_BLACK or Blitbuffer.COLOR_GRAY,
             },

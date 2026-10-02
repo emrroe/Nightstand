@@ -6,31 +6,33 @@ sort key (a local file the server doesn't know, a book never opened) always go
 last, whichever way the sort runs, and ties fall back to title.
 --]]--
 
+local _ = require("gettext")
+
 local Library = {}
 
 -- ids are written to settings; labels are what the menus show
 Library.SORTS = {
-    { id = "recent",    label = "Recently read", short = "Recent", desc = true },
-    { id = "title",     label = "Title" },
-    { id = "author",    label = "Author" },
-    { id = "added",     label = "Date added",    short = "Added", desc = true },
-    { id = "published", label = "Published",     desc = true },
-    { id = "series",    label = "Series" },
+    { id = "recent",    label = _("Recently read"), short = _("Recent"), desc = true },
+    { id = "title",     label = _("Title") },
+    { id = "author",    label = _("Author") },
+    { id = "added",     label = _("Date added"),    short = _("Added"), desc = true },
+    { id = "published", label = _("Published"),     desc = true },
+    { id = "series",    label = _("Series") },
 }
 
 Library.FILTERS = {
-    { id = "all",      label = "All" },
-    { id = "device",   label = "On device" },
-    { id = "reading",  label = "Reading" },
-    { id = "unread",   label = "Unread" },
-    { id = "finished", label = "Finished" },
+    { id = "all",      label = _("All") },
+    { id = "device",   label = _("On device") },
+    { id = "reading",  label = _("Reading") },
+    { id = "unread",   label = _("Unread") },
+    { id = "finished", label = _("Finished") },
 }
 
 Library.GROUPS = {
-    { id = "books",   label = "Books" },
-    { id = "authors", label = "Authors" },
-    { id = "series",  label = "Series" },
-    { id = "genres",  label = "Genres" },
+    { id = "books",   label = _("Books") },
+    { id = "authors", label = _("Authors") },
+    { id = "series",  label = _("Series") },
+    { id = "genres",  label = _("Genres") },
 }
 
 function Library.find(list, id)
