@@ -1,3 +1,4 @@
 *.swp
 *~
 .luacheckcache
+.claude/settings.local.json
