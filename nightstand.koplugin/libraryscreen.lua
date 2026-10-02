@@ -7,11 +7,9 @@ author, series or genre tiles; tapping a tile opens that group. Filter, sort
 and grouping are remembered between visits.
 --]]--
 
-local Blitbuffer = require("ffi/blitbuffer")
 local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -30,11 +28,9 @@ local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
-local text, hspan, rule = HomeScreen.util.text, HomeScreen.util.hspan, HomeScreen.util.rule
-local SERIF = HomeScreen.SERIF
-local BLACK = Blitbuffer.COLOR_BLACK
-local WHITE = Blitbuffer.COLOR_WHITE
-local GREY = Blitbuffer.COLOR_GRAY
+local W = require("widgets")
+local text, hspan, rule = W.text, W.hspan, W.rule
+local BLACK, GREY, SERIF = W.BLACK, W.GREY, W.SERIF
 
 local function bookCount(n)
     return n == 1 and _("1 book") or T(_("%1 books"), n)
@@ -47,7 +43,7 @@ local LibraryScreen = HomeScreen:extend{
 function LibraryScreen:init()
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
-    self.gutter = math.floor(self.screen_w * 0.023)
+    self.gutter = W.gutter(self.screen_w)
     self.page = 1
     self.tap_zones = {}
 
@@ -109,7 +105,7 @@ end
 --- a legible physical size; leftover height is shared between the rows.
 function LibraryScreen:planGrid(grid_h)
     local area_w = self.screen_w - 2 * self.gutter
-    local gap = Dim.px(8)
+    local gap = W.GAP
     local min_gap = Dim.px(10)
     local caption_h = self:captionHeight()
     -- about 21 mm on any screen; thinner than that and covers stop reading
@@ -117,7 +113,7 @@ function LibraryScreen:planGrid(grid_h)
     local best
     local function consider(rows, cols, cover_w)
         if cols < 2 or cover_w < smallest then return end
-        local used = rows * (math.floor(cover_w * 1.5) + caption_h) + (rows - 1) * min_gap
+        local used = rows * (W.coverHeight(cover_w) + caption_h) + (rows - 1) * min_gap
         local count = rows * cols
         if not best or count > best.count or (count == best.count and used > best.used) then
             best = { rows = rows, cols = cols, cover_w = cover_w, used = used, count = count }
@@ -125,7 +121,7 @@ function LibraryScreen:planGrid(grid_h)
     end
     for rows = 1, 6 do
         local cover_h = math.floor((grid_h - (rows - 1) * min_gap) / rows) - caption_h
-        local widest = math.floor(cover_h / 1.5)
+        local widest = math.floor(cover_h / W.COVER_ASPECT)
         if widest < smallest then break end
         local fit = (area_w + gap) / (widest + gap)
         local more = math.ceil(fit)
@@ -172,11 +168,7 @@ function LibraryScreen:build()
                      function(...) self:zone(...) end,
                      function(id) self:onTab(id) end), TabBar.height())
 
-    self[1] = FrameContainer:new{
-        width = w, height = h, background = WHITE,
-        bordersize = 0, padding = 0, margin = 0,
-        stack,
-    }
+    self[1] = W.fullscreen(w, h, stack)
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
 end
 
@@ -258,7 +250,7 @@ function LibraryScreen:chipsBand(h, band_y)
             table.insert(strip, hspan(space))
             x = x + space
         end
-        local cell = self:filterCell(spec, self.filter == spec.id)
+        local cell = W.chip(spec.label, self.filter == spec.id)
         local cell_w = cell:getSize().w
         table.insert(strip, cell)
         local id = spec.id
@@ -268,19 +260,6 @@ function LibraryScreen:chipsBand(h, band_y)
     return LeftContainer:new{
         dimen = Geom:new{ w = self.screen_w, h = h },
         HorizontalGroup:new{ hspan(self.gutter), strip },
-    }
-end
-
-function LibraryScreen:filterCell(spec, active)
-    return FrameContainer:new{
-        background = active and BLACK or WHITE,
-        color = BLACK,
-        bordersize = Size.border.thin,
-        padding = Dim.pad.default,
-        padding_top = Dim.pad.small, padding_bottom = Dim.pad.small,
-        margin = 0,
-        radius = Dim.px(4),
-        text(spec.label, "infont", 12, active and WHITE or BLACK),
     }
 end
 
@@ -294,7 +273,7 @@ function LibraryScreen:libraryGrid(h, band_y)
 
     local caption_h = self:captionHeight()
     local cover_w, gap = self.cover_w, self.gap
-    local cover_h = math.floor(cover_w * 1.5)
+    local cover_h = W.coverHeight(cover_w)
     local cell_h = cover_h + caption_h
     local grid = VerticalGroup:new{ align = "left" }
     local first = (self.page - 1) * self.per_page + 1

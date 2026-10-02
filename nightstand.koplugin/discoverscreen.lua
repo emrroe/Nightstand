@@ -17,13 +17,11 @@ local Hardcover = require("hardcover")
 local HomeScreen = require("homescreen")
 local Settings = require("settings")
 local Vendors = require("vendors")
-local Dim = require("dim")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
-local text = HomeScreen.util.text
-local Blitbuffer = require("ffi/blitbuffer")
-local GREY = Blitbuffer.COLOR_GRAY
+local W = require("widgets")
+local text, GREY = W.text, W.GREY
 
 local DiscoverScreen = HomeScreen:extend{
     name = "nightstand_discover",
@@ -33,7 +31,7 @@ local DiscoverScreen = HomeScreen:extend{
 function DiscoverScreen:init()
     self.screen_w = Device.screen:getWidth()
     self.screen_h = Device.screen:getHeight()
-    self.gutter = math.floor(self.screen_w * 0.023)
+    self.gutter = W.gutter(self.screen_w)
     self.page = 1
     self.tap_zones = {}
 
@@ -108,7 +106,7 @@ end
 function DiscoverScreen:build()
     HomeScreen.build(self)
     -- the status line doubles as "fetch again"
-    self:zone(0, 0, self.screen_w, Dim.px(27), function() self:fetchAgain() end)
+    self:zone(0, 0, self.screen_w, W.STATUS_H, function() self:fetchAgain() end)
 end
 
 function DiscoverScreen:fetchAgain()

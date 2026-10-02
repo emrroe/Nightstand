@@ -13,7 +13,6 @@ local Geom = require("ui/geometry")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local QRWidget = require("ui/widget/qrwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
@@ -23,8 +22,8 @@ local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
-local BLACK = Blitbuffer.COLOR_BLACK
-local GREY = Blitbuffer.COLOR_GRAY
+local W = require("widgets")
+local BLACK, GREY = W.BLACK, W.GREY
 
 local HardcoverLink = InputContainer:extend{
     name = "nightstand_hardcover_link",
@@ -104,7 +103,7 @@ end
 local function line(str, face, size, colour, width)
     return CenterContainer:new{
         dimen = Geom:new{ w = width, h = Dim.face(face, size).size * 1.6 },
-        TextWidget:new{ text = str, face = Dim.face(face, size), fgcolor = colour or BLACK },
+        W.text(str, face, size, colour),
     }
 end
 
@@ -114,7 +113,7 @@ function HardcoverLink:build()
     local qr_size = math.floor(math.min(w, h) * 0.42)
     local group = VerticalGroup:new{ align = "center" }
 
-    table.insert(group, line(_("Connect Hardcover"), "NotoSerif-Bold.ttf", 22, BLACK, w))
+    table.insert(group, line(_("Connect Hardcover"), W.SERIF, 22, BLACK, w))
     table.insert(group, VerticalSpan:new{ width = Dim.px(12) })
 
     local device = self.device

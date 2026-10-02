@@ -7,10 +7,7 @@ right, and keeps the footer tabs so Settings is a place rather than a popup.
 The last row hands over to KOReader's own menu for everything else.
 --]]--
 
-local Blitbuffer = require("ffi/blitbuffer")
-local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
-local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -18,10 +15,8 @@ local HorizontalSpan = require("ui/widget/horizontalspan")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
-local OverlapGroup = require("ui/widget/overlapgroup")
 local RightContainer = require("ui/widget/container/rightcontainer")
 local Size = require("ui/size")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
@@ -39,68 +34,19 @@ local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
-local BLACK = Blitbuffer.COLOR_BLACK
-local WHITE = Blitbuffer.COLOR_WHITE
-local GREY = Blitbuffer.COLOR_GRAY
+local W = require("widgets")
+local text, toggle = W.text, W.toggle
+local BLACK, GREY = W.BLACK, W.GREY
 
 local SettingsScreen = InputContainer:extend{
     name = "nightstand_settings",
     covers_fullscreen = true,
 }
 
-local function text(str, face, size, colour, max_width)
-    return TextWidget:new{
-        text = str or "",
-        face = Dim.face(face, size),
-        fgcolor = colour or BLACK,
-        max_width = max_width,
-    }
-end
-
-local function box(w, h)
-    return CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, VerticalSpan:new{ width = 0 } }
-end
-
---- Filled with the knob right for on, outlined with it left for off: two cues,
---- neither of them colour.
-local function toggle(on)
-    local h = Dim.px(19)
-    local w = math.floor(h * 1.9)
-    local knob = h - Dim.px(7)
-    local inset = math.floor((h - knob) / 2)
-
-    local track = FrameContainer:new{
-        background = on and BLACK or WHITE,
-        color = BLACK,
-        bordersize = Size.border.thin,
-        padding = 0, margin = 0,
-        radius = math.floor(h / 2),
-        box(w, h),
-    }
-    local dot = FrameContainer:new{
-        background = on and WHITE or BLACK,
-        bordersize = 0, padding = 0, margin = 0,
-        radius = math.floor(knob / 2),
-        box(knob, knob),
-    }
-    local size = track:getSize()
-    dot.overlap_offset = {
-        on and (size.w - knob - inset - Size.border.thin) or (inset + Size.border.thin),
-        inset + Size.border.thin,
-    }
-    local group = OverlapGroup:new{
-        dimen = Geom:new{ w = size.w, h = size.h },
-        allow_mirroring = false,
-    }
-    table.insert(group, track)
-    table.insert(group, dot)
-    return group
-end
-
 function SettingsScreen:init()
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
-    self.gutter = math.floor(self.screen_w * 0.023)
+    self.gutter = W.gutter(self.screen_w)
     self.tap_zones = {}
 
     if Device:hasKeys() then
@@ -275,7 +221,7 @@ function SettingsScreen:build()
         dimen = Geom:new{ w = w, h = title_h },
         HorizontalGroup:new{
             HorizontalSpan:new{ width = self.gutter },
-            text(_("Settings"), "NotoSerif-Bold.ttf", 20),
+            text(_("Settings"), W.SERIF, 20),
         },
     }, title_h)
     add(LineWidget:new{ background = GREY, dimen = Geom:new{ w = w, h = Size.line.thin } },
@@ -346,11 +292,7 @@ function SettingsScreen:build()
                      function(...) self:zone(...) end,
                      function(id) self:onTab(id) end), tabs_h)
 
-    self[1] = FrameContainer:new{
-        width = w, height = h, background = WHITE,
-        bordersize = 0, padding = 0, margin = 0,
-        stack,
-    }
+    self[1] = W.fullscreen(w, h, stack)
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
 end
 

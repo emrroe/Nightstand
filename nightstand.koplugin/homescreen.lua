@@ -5,23 +5,19 @@ Bands, top to bottom: status strip, hero (the continue card), shelves, tab
 bar. Discover reuses this layout with its own hero and shelves.
 --]]--
 
-local Blitbuffer = require("ffi/blitbuffer")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local HorizontalSpan = require("ui/widget/horizontalspan")
 local ImageWidget = require("ui/widget/imagewidget")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
-local LineWidget = require("ui/widget/linewidget")
 local OverlapGroup = require("ui/widget/overlapgroup")
 local ProgressWidget = require("ui/widget/progresswidget")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
-local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
@@ -34,54 +30,24 @@ local _ = require("gettext")
 local Screen = Device.screen
 local T = require("ffi/util").template
 
--- Book titles get a serif; the chrome stays sans and the data stays mono.
-local SERIF = "NotoSerif-Bold.ttf"
+local W = require("widgets")
+local text, hspan, rule, band = W.text, W.hspan, W.rule, W.band
+local BLACK, WHITE, GREY, SERIF = W.BLACK, W.WHITE, W.GREY, W.SERIF
 
 -- Resolved from this file so the plugin folder can live anywhere.
 local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]+$")
 local CLOUD_ICON = PLUGIN_DIR .. "/resources/cloud-arrow-down.svg"
 local CLOUD_RATIO = (640 + 64) / (512 + 64)  -- viewBox, halo included
 
-local BLACK = Blitbuffer.COLOR_BLACK
-local WHITE = Blitbuffer.COLOR_WHITE
-local GREY = Blitbuffer.COLOR_GRAY
-
 local HomeScreen = InputContainer:extend{
     name = "nightstand_home",
     covers_fullscreen = true,
 }
 
--- helpers ------------------------------------------------------------------
-
-local function text(str, face_name, size, fg, max_width)
-    return TextWidget:new{
-        text = str or "",
-        face = Dim.face(face_name, size),
-        fgcolor = fg or BLACK,
-        max_width = max_width,
-    }
-end
-
-local function hspan(w) return HorizontalSpan:new{ width = w } end
-
-local function rule(w)
-    return LineWidget:new{ background = GREY, dimen = Geom:new{ w = w, h = Size.line.thin } }
-end
-
---- A band of exactly `h` pixels, contents left-aligned with a side gutter.
-local function band(w, h, gutter, inner)
-    return LeftContainer:new{
-        dimen = Geom:new{ w = w, h = h },
-        HorizontalGroup:new{ hspan(gutter), inner },
-    }
-end
-
--- construction -------------------------------------------------------------
-
 function HomeScreen:init()
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
-    self.gutter = math.floor(self.screen_w * 0.023)
+    self.gutter = W.gutter(self.screen_w)
     self.tap_zones = {}
 
     if Device:hasKeys() then
@@ -106,7 +72,7 @@ end
 --- A tall continue card over labelled shelves of bare covers.
 function HomeScreen:build()
     local w, h = self.screen_w, self.screen_h
-    local status_h = Dim.px(27)
+    local status_h = W.STATUS_H
     local tabs_h = self:tabsHeight()
     local tabs_margin = self:tabsMargin()
 
@@ -176,11 +142,7 @@ function HomeScreen:build()
     local tabs_y = y
     add(self:tabsBand(tabs_h, tabs_y), tabs_h)
 
-    self[1] = FrameContainer:new{
-        width = w, height = h, background = WHITE,
-        bordersize = 0, padding = 0, margin = 0,
-        stack,
-    }
+    self[1] = W.fullscreen(w, h, stack)
     self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
 end
 
@@ -201,10 +163,7 @@ function HomeScreen:tabsMargin()
 end
 
 function HomeScreen:labelHeight()
-    local probe = text("Ag", "infont", 11, GREY)
-    local height = probe:getSize().h
-    probe:free()
-    return height
+    return W.lineHeight("infont", 11)
 end
 
 --- Works out how many shelves, how many covers per shelf, and what is left
@@ -221,7 +180,7 @@ end
 --- a third shelf rather than a hero that swallows half the screen.
 function HomeScreen:shelfPlan(max_count, status_h, footer_h)
     local area_w = self.screen_w - 2 * self.gutter
-    local gap = Dim.px(8)
+    local gap = W.GAP
     local chrome = self:labelHeight() + Dim.pad.default + Dim.pad.large
     local available = self.screen_h - status_h - footer_h
     local smallest = Dim.px(70)
@@ -234,7 +193,7 @@ function HomeScreen:shelfPlan(max_count, status_h, footer_h)
         for cols = 3, 10 do
             local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
             if cover_w < smallest then break end
-            local each = chrome + math.floor(cover_w * 1.5)
+            local each = chrome + W.coverHeight(cover_w)
             local hero_h = available - count * each
             if hero_h > 0 and self:heroCoverWidth(hero_h) > cover_w then
                 table.insert(plans, { count = count, cols = cols, cover_w = cover_w,
@@ -256,7 +215,7 @@ function HomeScreen:shelfPlan(max_count, status_h, footer_h)
 
     -- nothing satisfies the hero rule (a very short screen): one modest shelf
     local cover_w = math.floor((area_w - 3 * gap) / 4)
-    local each = chrome + math.floor(cover_w * 1.5)
+    local each = chrome + W.coverHeight(cover_w)
     return 1, 4, cover_w, each, math.max(0, available - each)
 end
 
@@ -266,15 +225,15 @@ local HERO_PAD = 0.05
 
 function HomeScreen:heroCoverWidth(hero_h)
     local pad = math.floor(hero_h * HERO_PAD)
-    return math.floor((hero_h - 2 * pad) / 1.5)
+    return math.floor((hero_h - 2 * pad) / W.COVER_ASPECT)
 end
 
 function HomeScreen:stripBand(shelf, h, band_y)
     local w = self.screen_w
-    local gap = Dim.px(8)
+    local gap = W.GAP
     local cover_w = self.strip_cover_w
     local cols = self.strip_cols
-    local cover_h = math.floor(cover_w * 1.5)
+    local cover_h = W.coverHeight(cover_w)
     local label_h = self:labelHeight()
 
     local header = HorizontalGroup:new{
@@ -347,7 +306,7 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     end
 
     local cover_h = inner_h
-    local cover_w = math.floor(cover_h / 1.5)
+    local cover_w = math.floor(cover_h / W.COVER_ASPECT)
     local tile = self:coverTile(entry, cover_w, cover_h, true)
     local meta_w = self.screen_w - 2 * self.gutter - cover_w - self.gutter
 
@@ -496,15 +455,9 @@ function HomeScreen:heroDetails(entry, meta_w)
     return progress
 end
 
---- Two lines of caption, measured rather than guessed: a fixed fraction of
---- the band was reserving nearly twice what the text needs.
+--- The two caption lines under a grid cover: serif title, mono author.
 function HomeScreen:captionHeight()
-    local title = text("Ag", "cfont", 12)
-    local status = text("Ag", "infont", 10)
-    local total = title:getSize().h + status:getSize().h
-    title:free()
-    status:free()
-    return total
+    return W.lineHeight(SERIF, 12) + W.lineHeight("infont", 10)
 end
 
 function HomeScreen:tabsBand(h, band_y)
@@ -694,9 +647,5 @@ function HomeScreen:onCloseWidget()
     if self.on_closed then self.on_closed() end
     UIManager:setDirty(nil, "full")
 end
-
--- shared with the other full-screen views, which extend this one
-HomeScreen.SERIF = SERIF
-HomeScreen.util = { text = text, hspan = hspan, rule = rule, band = band }
 
 return HomeScreen
