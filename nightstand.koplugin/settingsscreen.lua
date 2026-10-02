@@ -318,12 +318,7 @@ end
 function SettingsScreen:onTab(id)
     if id == "settings" then return end
     UIManager:close(self)
-    if id ~= "home" then
-        UIManager:show(require("ui/widget/infomessage"):new{
-            text = _("That tab is next on the list."),
-            timeout = 2,
-        })
-    end
+    if id ~= "home" then self.plugin:openTab(id) end
 end
 
 function SettingsScreen:onTap(_widget, ges)

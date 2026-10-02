@@ -10,8 +10,15 @@ local DocSettings = require("docsettings")
 local Availability = require("availability")
 local Catalog = require("catalog")
 local Progress = require("progress")
+local ReadHistory = require("readhistory")
 
 local Books = {}
+
+-- Copied verbatim from the catalogue onto the merged entry.
+local CATALOGUE_FIELDS = {
+    "book_id", "cover_url", "summary", "published", "language", "genres",
+    "size", "added_rank", "series", "series_index",
+}
 
 local function baseName(path)
     local name = path:match("([^/]+)$") or path
@@ -46,6 +53,7 @@ function Books:entryFor(file, checksum)
     -- A position read on another device only exists on the server. Take
     -- whichever is further along rather than letting one overwrite the other.
     local synced = Progress:get(checksum)
+    entry.server_read_at = synced and tonumber(synced.timestamp)
     if synced and synced.percentage > (entry.percent or 0) then
         entry.percent = synced.percentage
         entry.device = synced.device
@@ -85,26 +93,35 @@ function Books:list(books_dir)
                 break
             end
         end
+        local entry = matched
         if matched then
-            matched.book_id = item.book_id
-            matched.cover_url = item.cover_url
-            matched.summary = item.summary
-            matched.added = item.updated
             matched.title = item.title  -- the catalogue name beats the filename
             if matched.author == "" then matched.author = item.author end
         else
-            table.insert(entries, {
+            entry = {
                 title = item.title,
                 author = item.author,
-                book_id = item.book_id,
-                cover_url = item.cover_url,
                 download_url = item.download_url,
-                summary = item.summary,
-                added = item.updated,
                 status = "new",
                 on_device = false,
-            })
+            }
+            table.insert(entries, entry)
         end
+        for _, key in ipairs(CATALOGUE_FIELDS) do entry[key] = item[key] end
+        entry.added = item.updated
+        if item.read_on_server and entry.status ~= "reading" then
+            entry.status = "complete"
+        end
+    end
+
+    local last_read = {}
+    for _, item in ipairs(ReadHistory.hist or {}) do
+        last_read[item.file] = math.max(last_read[item.file] or 0, item.time or 0)
+    end
+    for _, entry in ipairs(entries) do
+        local here = entry.file and last_read[entry.file] or 0
+        local there = entry.server_read_at or 0
+        if here > 0 or there > 0 then entry.last_read = math.max(here, there) end
     end
 
     table.sort(entries, function(a, b)

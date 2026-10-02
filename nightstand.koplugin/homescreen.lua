@@ -748,14 +748,7 @@ end
 
 function HomeScreen:onTab(id)
     if id == "home" then return end
-    if id == "settings" then
-        if self.plugin then self.plugin:openSettings() end
-        return
-    end
-    UIManager:show(require("ui/widget/infomessage"):new{
-        text = _("That tab is next on the list."),
-        timeout = 2,
-    })
+    if self.plugin then self.plugin:openTab(id) end
 end
 
 function HomeScreen:refresh()
@@ -794,5 +787,9 @@ function HomeScreen:onCloseWidget()
     if self.on_closed then self.on_closed() end
     UIManager:setDirty(nil, "full")
 end
+
+-- shared with the other full-screen views, which extend this one
+HomeScreen.SERIF = SERIF
+HomeScreen.util = { text = text, hspan = hspan, rule = rule, band = band }
 
 return HomeScreen

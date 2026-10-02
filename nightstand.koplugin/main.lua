@@ -47,6 +47,16 @@ function Nightstand:openSettings()
     UIManager:show(require("settingsscreen"):new{ plugin = self })
 end
 
+function Nightstand:openLibrary()
+    UIManager:show(require("libraryscreen"):new{ plugin = self })
+end
+
+--- The home screen stays underneath; every other tab opens on top of it.
+function Nightstand:openTab(id)
+    if id == "library" then return self:openLibrary() end
+    if id == "settings" then return self:openSettings() end
+end
+
 --- Everything else: KOReader's own menu, at its usual place.
 function Nightstand:openKoreaderMenu()
     local menu = self.ui and self.ui.menu

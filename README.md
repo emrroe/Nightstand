@@ -15,7 +15,13 @@ The home screen works against a real CWA server: a continue-reading card,
 then shelves of covers. The catalogue merges with the local folder,
 server-only books carry a download badge, tapping one fetches it and opens
 it, and covers are fetched once and kept on disk. The footer has Home,
-Library and Settings; Library is not built yet.
+Library and Settings.
+
+The Library tab is a paged cover grid with filters (All, On device, Reading,
+Unread, Finished) and sorts (recently read, title, author, date added,
+published, series). **Show** swaps the books for author, series or genre
+tiles; a series opens in reading order with its real series numbers, which
+come from CWA's book data since OPDS leaves them out.
 
 ## Hardcover
 
