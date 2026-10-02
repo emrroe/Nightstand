@@ -23,7 +23,19 @@ local NightstandScreen = InputContainer:extend{
     pageable = false,  -- swipes turn pages
 }
 
+-- every Nightstand screen currently open, so they can all close together
+NightstandScreen.open_screens = {}
+
+--- Close every Nightstand screen, e.g. before the reader takes over: one
+--- left underneath would sit between the reader and the next file browser.
+function NightstandScreen.closeAll()
+    local screens = {}
+    for screen in pairs(NightstandScreen.open_screens) do table.insert(screens, screen) end
+    for _index, screen in ipairs(screens) do UIManager:close(screen) end
+end
+
 function NightstandScreen:init()
+    NightstandScreen.open_screens[self] = true
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
     self.gutter = W.gutter(self.screen_w)
@@ -133,6 +145,7 @@ function NightstandScreen:onClose()
 end
 
 function NightstandScreen:onCloseWidget()
+    NightstandScreen.open_screens[self] = nil
     if self[1] then self[1]:free() end
     if self.on_closed then self.on_closed() end
     UIManager:setDirty(nil, "full")

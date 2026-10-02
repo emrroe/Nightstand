@@ -114,7 +114,9 @@ function Nightstand:open()
         })
         return
     end
-    if shown_home and UIManager:isWidgetShown(shown_home) then return end
+    -- a Home left open underneath (the file browser was created over it)
+    -- must not block a fresh one on top
+    if shown_home then UIManager:close(shown_home) end
     shown_home = require("homescreen"):new{
         plugin = self,
         on_closed = function() shown_home = nil end,

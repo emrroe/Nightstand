@@ -398,6 +398,28 @@ T.describe(SIZE .. " › hardcover sign-in screen", function()
     end)
 end)
 
+T.describe(SIZE .. " › opening a book", function()
+    T.it("closes every Nightstand screen, so closing the book brings Home back", function()
+        DATASETS["local files only"]()
+        local opened
+        package.loaded["apps/reader/readerui"] = { showReader = function(_, file) opened = file end }
+        local show = UIManager.show
+        UIManager.show = function() end
+        local Screen = require("screen")
+        local home = require("homescreen"):new{ plugin = plugin() }
+        local library = require("libraryscreen"):new{ plugin = plugin() }
+        local book
+        for _index, e in ipairs(library.items) do if e.on_device then book = e break end end
+        T.ok(book, "a local book to open")
+        require("bookactions").open(library, book)
+        UIManager.show = show
+        package.loaded["apps/reader/readerui"] = nil
+        T.eq(opened, book.file, "the reader got the book")
+        T.eq(next(Screen.open_screens), nil, "no Nightstand screen left open underneath")
+        T.ok(home, "home existed")
+    end)
+end)
+
 T.describe(SIZE .. " › first run", function()
     local function boot(online, routes)
         local NetworkMgr = require("ui/network/manager")

@@ -14,8 +14,8 @@ local function message(text)
     UIManager:show(require("ui/widget/infomessage"):new{ text = text })
 end
 
-local function showReader(screen, file)
-    UIManager:close(screen)
+local function showReader(file)
+    require("screen").closeAll()
     require("apps/reader/readerui"):showReader(file)
 end
 
@@ -30,13 +30,13 @@ local function download(screen, entry)
         screen:refresh()
         return
     end
-    showReader(screen, result)
+    showReader(result)
 end
 
 --- Open `entry` from `screen`, which closes once the reader takes over.
 function BookActions.open(screen, entry)
     if entry.on_device and entry.file then
-        return showReader(screen, entry.file)
+        return showReader(entry.file)
     end
     if not Net.mayDownload() then
         return message(_("This phone is on mobile data and “Over Wi-Fi only” is on. Connect to Wi-Fi, or turn that off in Settings."))
