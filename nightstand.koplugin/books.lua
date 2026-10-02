@@ -156,7 +156,18 @@ function Books:current(entries)
         end
     end
     if best then return best, false end
-    return entries[1], true
+    -- nothing in progress: suggest the next book of a series being read,
+    -- else the newest addition
+    local next_up = self:nextInSeries(entries)[1]
+    if next_up then return next_up, true end
+    local newest
+    for _, entry in ipairs(entries) do
+        if entry.status ~= "complete" and entry.added_rank
+           and (not newest or entry.added_rank < newest.added_rank) then
+            newest = entry
+        end
+    end
+    return newest or entries[1], true
 end
 
 --- `New`, `42%` or `Finished` — the tag in the cover's top-right corner.

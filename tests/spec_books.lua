@@ -119,6 +119,14 @@ T.describe("reading positions", function()
         T.eq(cur.title, "b"); T.eq(fresh, false)
         cur, fresh = Books:current({ { title = "c", status = "new" } })
         T.eq(cur.title, "c"); T.eq(fresh, true)
+        cur = Books:current({ { title = "old", status = "new", added_rank = 9 },
+                              { title = "S1", series = "S", series_index = 1, status = "complete" },
+                              { title = "S2", series = "S", series_index = 2, status = "new", added_rank = 5 },
+                              { title = "newest", status = "new", added_rank = 1 } })
+        T.eq(cur.title, "S2", "the next in a series beats the newest addition")
+        cur = Books:current({ { title = "old", status = "new", added_rank = 9 },
+                              { title = "newest", status = "new", added_rank = 1 } })
+        T.eq(cur.title, "newest", "else the newest addition")
         cur = Books:current({})
         T.eq(cur, nil, "no books, no hero")
     end)
