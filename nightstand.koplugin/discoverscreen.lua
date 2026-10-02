@@ -104,9 +104,12 @@ function DiscoverScreen:build()
     self.entries = self:items()
     self.row_h = W.coverHeight(self:coverWidth()) + 2 * Dim.pad.large
     local list_h = h - title_h - (in_want and 0 or chips_h) - line - pager_h - tabs_h - tabs_margin
-    self.per_page = math.max(1, math.floor(list_h / self.row_h))
+    -- landscape has room for two columns of rows side by side
+    self.columns = w > h and 2 or 1
+    self.rows = math.max(1, math.floor(list_h / self.row_h))
+    self.per_page = self.rows * self.columns
     -- rows share the leftover height, which goes to longer descriptions
-    self.row_h = math.floor(list_h / self.per_page)
+    self.row_h = math.floor(list_h / self.rows)
     self.pages = math.max(1, math.ceil(#self.entries / self.per_page))
     if self.page > self.pages then self.page = self.pages end
 
@@ -197,25 +200,30 @@ function DiscoverScreen:listBand(h, band_y)
                                width = self.screen_w - 4 * self.gutter, alignment = "center" },
         }
     end
-    local list = VerticalGroup:new{ align = "left" }
+    local col_w = math.floor(self.screen_w / self.columns)
+    local columns = HorizontalGroup:new{ align = "top" }
     local first = (self.page - 1) * self.per_page + 1
-    local y = band_y
-    for i = first, math.min(#self.entries, first + self.per_page - 1) do
-        local entry = self.entries[i]
-        table.insert(list, self:row(entry, self.row_h))
-        self:zone(0, y, self.screen_w, self.row_h, function() self:openBook(entry) end,
-                  function() self:holdBook(entry) end)
-        y = y + self.row_h
+    for c = 1, self.columns do
+        local column = VerticalGroup:new{ align = "left" }
+        local x = (c - 1) * col_w
+        for r = 1, self.rows do
+            local entry = self.entries[first + (c - 1) * self.rows + r - 1]
+            if not entry then break end
+            table.insert(column, self:row(entry, self.row_h, col_w))
+            self:zone(x, band_y + (r - 1) * self.row_h, col_w, self.row_h,
+                      function() self:openBook(entry) end, function() self:holdBook(entry) end)
+        end
+        table.insert(columns, column)
     end
-    return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, list }
+    return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, columns }
 end
 
 --- One book: its cover, then title, author, the facts line, and as much of
 --- the description as fits beside the cover.
-function DiscoverScreen:row(entry, h)
+function DiscoverScreen:row(entry, h, w)
     local cover_w = self:coverWidth()
     local cover_h = W.coverHeight(cover_w)
-    local text_w = self.screen_w - 2 * self.gutter - cover_w - self.gutter
+    local text_w = w - 2 * self.gutter - cover_w - self.gutter
     local col = VerticalGroup:new{ align = "left" }
     local used = 0
     local function put(widget)
@@ -247,7 +255,7 @@ function DiscoverScreen:row(entry, h)
     return VerticalGroup:new{
         align = "left",
         LeftContainer:new{
-            dimen = Geom:new{ w = self.screen_w, h = h - line },
+            dimen = Geom:new{ w = w, h = h - line },
             HorizontalGroup:new{
                 align = "top",
                 hspan(self.gutter),
@@ -256,7 +264,7 @@ function DiscoverScreen:row(entry, h)
                 col,
             },
         },
-        rule(self.screen_w),
+        rule(w),
     }
 end
 
@@ -317,6 +325,7 @@ function DiscoverScreen:fetchPageCovers()
     if not require("net").mayDownload() then return end
     local first = (self.page - 1) * self.per_page + 1
     local missing = {}
+    -- (columns fill top to bottom, so the page is still one contiguous range)
     for i = first, math.min(#self.entries, first + self.per_page - 1) do
         local entry = self.entries[i]
         if entry.image_url and not Discover:hasCover(entry.hc_id, entry.image_url) then
