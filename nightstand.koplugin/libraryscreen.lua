@@ -19,6 +19,7 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Books = require("books")
+local CoverTile = require("covertile")
 local HomeScreen = require("homescreen")
 local Library = require("library")
 local Settings = require("settings")
@@ -309,11 +310,11 @@ function LibraryScreen:cell(item, cover_w, cover_h)
     local cell = VerticalGroup:new{ align = "left" }
     if self.showing_groups then
         -- a group shows its first book's cover; for a series that is book one
-        table.insert(cell, self:coverTile(item.books[1], cover_w, cover_h, true, true))
+        table.insert(cell, CoverTile.new(item.books[1], cover_w, cover_h, { no_tag = true }))
         table.insert(cell, text(item.name, SERIF, 12, BLACK, cover_w))
         table.insert(cell, text(bookCount(#item.books), "infont", 10, GREY, cover_w))
     else
-        table.insert(cell, self:coverTile(item, cover_w, cover_h))
+        table.insert(cell, CoverTile.new(item, cover_w, cover_h))
         table.insert(cell, text(item.title, SERIF, 12, BLACK, cover_w))
         local second = item.author ~= "" and item.author or Books:progressTag(item)
         if self.open_group and self.group == "series" and item.series_index then
