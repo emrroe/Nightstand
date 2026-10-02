@@ -102,14 +102,13 @@ function Hardcover:postForm(path, fields)
     return self:post(path, encodeForm(fields), "application/x-www-form-urlencoded")
 end
 
+--- Replaces the tokens and keeps everything else known about the account.
 local function store(token)
-    local previous = Settings:get("hardcover") or {}
-    Settings:set("hardcover", {
-        access_token = token.access_token,
-        refresh_token = token.refresh_token or previous.refresh_token,
-        expires_at = os.time() + (tonumber(token.expires_in) or 604800),
-        username = previous.username,
-    })
+    local account = Settings:get("hardcover") or {}
+    account.access_token = token.access_token
+    account.refresh_token = token.refresh_token or account.refresh_token
+    account.expires_at = os.time() + (tonumber(token.expires_in) or 604800)
+    Settings:set("hardcover", account)
 end
 
 --- Step 1: ask for a device code. Returns the response table or nil, err.
