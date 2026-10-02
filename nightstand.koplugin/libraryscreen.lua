@@ -9,7 +9,6 @@ and grouping are remembered between visits.
 
 local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
-local Device = require("device")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -20,13 +19,12 @@ local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Books = require("books")
 local CoverTile = require("covertile")
-local HomeScreen = require("homescreen")
+local NightstandScreen = require("screen")
 local Library = require("library")
 local Settings = require("settings")
 local TabBar = require("tabbar")
 local Dim = require("dim")
 local _ = require("gettext")
-local Screen = Device.screen
 local T = require("ffi/util").template
 
 local W = require("widgets")
@@ -37,27 +35,14 @@ local function bookCount(n)
     return n == 1 and _("1 book") or T(_("%1 books"), n)
 end
 
-local LibraryScreen = HomeScreen:extend{
+local LibraryScreen = NightstandScreen:extend{
     name = "nightstand_library",
+    tab_id = "library",
+    pageable = true,
 }
 
-function LibraryScreen:init()
-    self.screen_w = Screen:getWidth()
-    self.screen_h = Screen:getHeight()
-    self.gutter = W.gutter(self.screen_w)
-    self.page = 1
-    self.tap_zones = {}
-
-    if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
-    end
-    if Device:isTouchDevice() then
-        local GestureRange = require("ui/gesturerange")
-        local full = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
-        self.ges_events.Tap = { GestureRange:new{ ges = "tap", range = full } }
-        self.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = full } }
-    end
-
+function LibraryScreen:load()
+    self.page = self.page or 1
     self.entries = Books:list(Settings:booksDir())
     self.filter = Library.find(Library.FILTERS, Settings:get("library_filter")).id
     self.group = Library.find(Library.GROUPS, Settings:get("library_group")).id
@@ -65,10 +50,6 @@ function LibraryScreen:init()
     self.sort = sort.id
     self.descending = Settings:get("library_descending")
     if self.descending == nil then self.descending = sort.desc or false end
-    self.open_group = nil  -- name of the group drilled into, if any
-
-    self:recompute()
-    self:build()
 end
 
 -- what is on screen -----------------------------------------------------------
@@ -104,6 +85,11 @@ end
 --- to meet both margins) or one fewer (covers keep their height, the row is
 --- centred). The plan showing the most books wins, as long as covers stay at
 --- a legible physical size; leftover height is shared between the rows.
+--- The two caption lines under a grid cover: serif title, mono author.
+function LibraryScreen:captionHeight()
+    return W.lineHeight(SERIF, 12) + W.lineHeight("infont", 10)
+end
+
 function LibraryScreen:planGrid(grid_h)
     local area_w = self.screen_w - 2 * self.gutter
     local gap = W.GAP
@@ -146,6 +132,7 @@ function LibraryScreen:pagerHeight() return Dim.px(26) end
 -- layout ------------------------------------------------------------------------
 
 function LibraryScreen:build()
+    self:recompute()
     local w, h = self.screen_w, self.screen_h
     local y = 0
     local stack = VerticalGroup:new{ align = "left" }
@@ -165,12 +152,9 @@ function LibraryScreen:build()
     add(self:pagerBand(self:pagerHeight(), y), self:pagerHeight())
 
     add(VerticalSpan:new{ width = TabBar.margin() }, TabBar.margin())
-    add(TabBar.build(w, TabBar.height(), y, "library",
-                     function(...) self:zone(...) end,
-                     function(id) self:onTab(id) end), TabBar.height())
+    add(self:tabsBand(TabBar.height(), y), TabBar.height())
 
-    self[1] = W.fullscreen(w, h, stack)
-    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    self:setContent(stack)
 end
 
 --- A control that opens a menu: label, value, and a mark saying what it does.
@@ -362,13 +346,6 @@ function LibraryScreen:activate(item)
     self:openBook(item)
 end
 
-function LibraryScreen:refresh()
-    self.tap_zones = {}
-    self:recompute()
-    self:build()
-    UIManager:setDirty(self, "ui")
-end
-
 function LibraryScreen:closeGroup()
     self.open_group, self.page = nil, 1
     self:refresh()
@@ -425,13 +402,8 @@ function LibraryScreen:chooseGroup()
     end)
 end
 
-function LibraryScreen:onTab(id)
-    if id == "library" then
-        if self.open_group then self:closeGroup() end
-        return
-    end
-    UIManager:close(self)
-    if id ~= "home" and self.plugin then self.plugin:openTab(id) end
+function LibraryScreen:onTabAgain()
+    if self.open_group then self:closeGroup() end
 end
 
 function LibraryScreen:onClose()
@@ -441,10 +413,6 @@ function LibraryScreen:onClose()
     end
     UIManager:close(self)
     return true
-end
-
-function LibraryScreen:onCloseWidget()
-    UIManager:setDirty(nil, "full")
 end
 
 return LibraryScreen

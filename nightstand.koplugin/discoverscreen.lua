@@ -8,8 +8,6 @@ with Want to read and a lookup at the reader's chosen shop or library.
 Long-press goes straight to that lookup.
 --]]--
 
-local Device = require("device")
-local Geom = require("ui/geometry")
 local UIManager = require("ui/uimanager")
 local Books = require("books")
 local Discover = require("discover")
@@ -28,26 +26,9 @@ local DiscoverScreen = HomeScreen:extend{
     tab_id = "discover",
 }
 
-function DiscoverScreen:init()
-    self.screen_w = Device.screen:getWidth()
-    self.screen_h = Device.screen:getHeight()
-    self.gutter = W.gutter(self.screen_w)
-    self.page = 1
-    self.tap_zones = {}
-
-    if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
-    end
-    if Device:isTouchDevice() then
-        local GestureRange = require("ui/gesturerange")
-        local full = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
-        self.ges_events.Tap = { GestureRange:new{ ges = "tap", range = full } }
-        self.ges_events.Hold = { GestureRange:new{ ges = "hold", range = full } }
-    end
-
+function DiscoverScreen:load()
     self.library = Books:list(Settings:booksDir())
     self:collect()
-    self:build()
 end
 
 --- A Hardcover book as the shared cover tile understands it.
@@ -218,28 +199,6 @@ function DiscoverScreen:toggleWanted(entry)
         return
     end
     self:reload()
-end
-
-function DiscoverScreen:reload()
-    self:collect()
-    self:refresh()
-end
-
-function DiscoverScreen:refresh()
-    self.tap_zones = {}
-    self.more_widget = nil
-    self:build()
-    UIManager:setDirty(self, "ui")
-end
-
-function DiscoverScreen:onTab(id)
-    if id == "discover" then return end
-    UIManager:close(self)
-    if id ~= "home" and self.plugin then self.plugin:openTab(id) end
-end
-
-function DiscoverScreen:onCloseWidget()
-    UIManager:setDirty(nil, "full")
 end
 
 --- Shown instead of the screen when nothing could be loaded.

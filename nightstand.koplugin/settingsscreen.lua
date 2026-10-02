@@ -7,12 +7,10 @@ right, and keeps the footer tabs so Settings is a place rather than a popup.
 The last row hands over to KOReader's own menu for everything else.
 --]]--
 
-local Device = require("device")
 local Geom = require("ui/geometry")
-local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local HorizontalSpan = require("ui/widget/horizontalspan")
-local InputContainer = require("ui/widget/container/inputcontainer")
+local NightstandScreen = require("screen")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local LineWidget = require("ui/widget/linewidget")
 local RightContainer = require("ui/widget/container/rightcontainer")
@@ -31,37 +29,16 @@ local Settings = require("settings")
 local TabBar = require("tabbar")
 local Dim = require("dim")
 local _ = require("gettext")
-local Screen = Device.screen
 local T = require("ffi/util").template
 
 local W = require("widgets")
 local text, toggle = W.text, W.toggle
 local BLACK, GREY = W.BLACK, W.GREY
 
-local SettingsScreen = InputContainer:extend{
+local SettingsScreen = NightstandScreen:extend{
     name = "nightstand_settings",
-    covers_fullscreen = true,
+    tab_id = "settings",
 }
-
-function SettingsScreen:init()
-    self.screen_w = Screen:getWidth()
-    self.screen_h = Screen:getHeight()
-    self.gutter = W.gutter(self.screen_w)
-    self.tap_zones = {}
-
-    if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
-    end
-    if Device:isTouchDevice() then
-        local full = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
-        self.ges_events.Tap = { GestureRange:new{ ges = "tap", range = full } }
-    end
-    self:build()
-end
-
-function SettingsScreen:zone(x, y, w, h, callback)
-    table.insert(self.tap_zones, { rect = Geom:new{ x = x, y = y, w = w, h = h }, cb = callback })
-end
 
 function SettingsScreen:groups()
     local plugin = self.plugin
@@ -75,7 +52,7 @@ function SettingsScreen:groups()
               action = function() plugin:editServer() end },
             { label = _("Refresh catalogue"),
               value = T(_("%1 books"), Catalog:count()),
-              action = function() plugin:refreshCatalogue() self:rebuild() end },
+              action = function() plugin:refreshCatalogue() self:refresh() end },
             { label = _("Update positions when the device wakes"), key = "refresh_on_wake" },
         }},
         { _("Hardcover"), self:hardcoverRows() },
@@ -88,7 +65,7 @@ function SettingsScreen:groups()
               action = function()
                   Availability:invalidate()
                   Availability:ensure(books_dir)
-                  self:rebuild()
+                  self:refresh()
               end },
             { label = _("All KOReader settings"), chevron = true,
               action = function() plugin:openKoreaderMenu() end },
@@ -117,7 +94,7 @@ function SettingsScreen:chooseVendor()
             callback = function()
                 UIManager:close(dialog)
                 Settings:set("vendor", vendor.id)
-                self:rebuild()
+                self:refresh()
             end,
         }})
     end
@@ -152,7 +129,7 @@ function SettingsScreen:addVendor()
                     return
                 end
                 UIManager:close(input)
-                self:rebuild()
+                self:refresh()
             end },
         }},
     }
@@ -176,7 +153,7 @@ end
 function SettingsScreen:openLink()
     NetworkMgr:runWhenOnline(function()
         UIManager:show(HardcoverLink:new{
-            on_linked = function() self:rebuild() end,
+            on_linked = function() self:refresh() end,
         })
     end)
 end
@@ -190,15 +167,9 @@ function SettingsScreen:confirmUnlink()
             if NetworkMgr:isOnline() then Hardcover:unlink() else Hardcover:forget() end
             -- someone else's recommendations must not linger after a disconnect
             require("discover"):clear()
-            self:rebuild()
+            self:refresh()
         end,
     })
-end
-
-function SettingsScreen:rebuild()
-    self.tap_zones = {}
-    self:build()
-    UIManager:setDirty(self, "ui")
 end
 
 function SettingsScreen:build()
@@ -288,12 +259,9 @@ function SettingsScreen:build()
     add(VerticalSpan:new{ width = tabs_margin }, tabs_margin)
 
     local tabs_y = y
-    add(TabBar.build(w, tabs_h, tabs_y, "settings",
-                     function(...) self:zone(...) end,
-                     function(id) self:onTab(id) end), tabs_h)
+    add(self:tabsBand(tabs_h, tabs_y), tabs_h)
 
-    self[1] = W.fullscreen(w, h, stack)
-    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    self:setContent(stack)
 end
 
 function SettingsScreen:rowBand(row, h, band_y, band_x, w)
@@ -318,7 +286,7 @@ function SettingsScreen:rowBand(row, h, band_y, band_x, w)
         local key = row.key
         self:zone(band_x, band_y, w, h, function()
             Settings:toggle(key)
-            self:rebuild()
+            self:refresh()
         end)
     end
 
@@ -338,31 +306,6 @@ function SettingsScreen:rowBand(row, h, band_y, band_x, w)
             HorizontalSpan:new{ width = self.gutter },
         },
     }
-end
-
-function SettingsScreen:onTab(id)
-    if id == "settings" then return end
-    UIManager:close(self)
-    if id ~= "home" then self.plugin:openTab(id) end
-end
-
-function SettingsScreen:onTap(_widget, ges)
-    for _index, zone in ipairs(self.tap_zones) do
-        if zone.rect:contains(ges.pos) then
-            zone.cb()
-            return true
-        end
-    end
-    return true
-end
-
-function SettingsScreen:onClose()
-    UIManager:close(self)
-    return true
-end
-
-function SettingsScreen:onCloseWidget()
-    UIManager:setDirty(nil, "full")
 end
 
 return SettingsScreen

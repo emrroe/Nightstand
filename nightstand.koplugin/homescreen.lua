@@ -6,11 +6,8 @@ bar. Discover reuses this layout with its own hero and shelves.
 --]]--
 
 local CenterContainer = require("ui/widget/container/centercontainer")
-local Device = require("device")
 local Geom = require("ui/geometry")
-local GestureRange = require("ui/gesturerange")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
-local InputContainer = require("ui/widget/container/inputcontainer")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local ProgressWidget = require("ui/widget/progresswidget")
 local Size = require("ui/size")
@@ -19,46 +16,26 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Books = require("books")
+local NightstandScreen = require("screen")
 local TabBar = require("tabbar")
 local CoverTile = require("covertile")
 local Settings = require("settings")
 local Dim = require("dim")
 local _ = require("gettext")
-local Screen = Device.screen
 local T = require("ffi/util").template
 
 local W = require("widgets")
 local text, hspan, rule, band = W.text, W.hspan, W.rule, W.band
 local BLACK, WHITE, GREY, SERIF = W.BLACK, W.WHITE, W.GREY, W.SERIF
 
-local HomeScreen = InputContainer:extend{
+local HomeScreen = NightstandScreen:extend{
     name = "nightstand_home",
-    covers_fullscreen = true,
+    tab_id = "home",
 }
 
-function HomeScreen:init()
-    self.screen_w = Screen:getWidth()
-    self.screen_h = Screen:getHeight()
-    self.gutter = W.gutter(self.screen_w)
-    self.tap_zones = {}
-
-    if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
-    end
-    if Device:isTouchDevice() then
-        local full = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
-        self.ges_events.Tap = { GestureRange:new{ ges = "tap", range = full } }
-        self.ges_events.Hold = { GestureRange:new{ ges = "hold", range = full } }
-    end
-
+function HomeScreen:load()
     self.entries = Books:list(Settings:booksDir())
     self.current, self.fresh = Books:current(self.entries)
-    self:build()
-end
-
-function HomeScreen:zone(x, y, w, h, callback, on_hold)
-    table.insert(self.tap_zones, { rect = Geom:new{ x = x, y = y, w = w, h = h },
-                                   cb = callback, hold = on_hold })
 end
 
 --- A tall continue card over labelled shelves of bare covers.
@@ -134,8 +111,7 @@ function HomeScreen:build()
     local tabs_y = y
     add(self:tabsBand(tabs_h, tabs_y), tabs_h)
 
-    self[1] = W.fullscreen(w, h, stack)
-    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    self:setContent(stack)
 end
 
 --- The shelves to stack under the hero; other screens built like this one
@@ -447,17 +423,6 @@ function HomeScreen:heroDetails(entry, meta_w)
     return progress
 end
 
---- The two caption lines under a grid cover: serif title, mono author.
-function HomeScreen:captionHeight()
-    return W.lineHeight(SERIF, 12) + W.lineHeight("infont", 10)
-end
-
-function HomeScreen:tabsBand(h, band_y)
-    return TabBar.build(self.screen_w, h, band_y, self.tab_id or "home",
-                        function(...) self:zone(...) end,
-                        function(id) self:onTab(id) end)
-end
-
 -- behaviour ----------------------------------------------------------------
 
 function HomeScreen:showBlurb(title, summary)
@@ -465,98 +430,6 @@ function HomeScreen:showBlurb(title, summary)
         title = title,
         text = summary,
     })
-end
-
---- Long-press on a cover; only Discover does something with it.
-function HomeScreen:holdBook(_entry) end
-
-function HomeScreen:openBook(entry)
-    if entry.on_device and entry.file then
-        UIManager:close(self)
-        require("apps/reader/readerui"):showReader(entry.file)
-    else
-        self:fetchAndOpen(entry)
-    end
-end
-
-function HomeScreen:fetchAndOpen(entry)
-    local Net = require("net")
-    if not Net.mayDownload() then
-        UIManager:show(require("ui/widget/infomessage"):new{
-            text = _("This phone is on mobile data and “Over Wi-Fi only” is on. Connect to Wi-Fi, or turn that off in Settings."),
-        })
-        return
-    end
-    Net.whenOnline(function() self:downloadAndOpen(entry) end)
-end
-
-function HomeScreen:downloadAndOpen(entry)
-    local InfoMessage = require("ui/widget/infomessage")
-    local working = InfoMessage:new{ text = T(_("Fetching %1…"), entry.title) }
-    UIManager:show(working)
-    UIManager:forceRePaint()
-
-    local ok, result = require("download"):book(entry)
-    UIManager:close(working)
-
-    if not ok then
-        UIManager:show(InfoMessage:new{
-            text = T(_("Could not fetch %1.\n%2"), entry.title, tostring(result)),
-        })
-        self:refresh()
-        return
-    end
-    UIManager:close(self)
-    require("apps/reader/readerui"):showReader(result)
-end
-
-function HomeScreen:onTab(id)
-    if id == "home" then return end
-    if self.plugin then self.plugin:openTab(id) end
-end
-
---- Re-read the books, for when the catalogue changed underneath.
-function HomeScreen:reload()
-    self.entries = Books:list(Settings:booksDir())
-    self.current, self.fresh = Books:current(self.entries)
-    self:refresh()
-end
-
-function HomeScreen:refresh()
-    self.tap_zones = {}
-    self.more_widget = nil
-    self:build()
-    UIManager:setDirty(self, "ui")
-end
-
-function HomeScreen:onTap(_, ges)
-    for _index, zone in ipairs(self.tap_zones) do
-        if zone.rect:contains(ges.pos) then
-            zone.cb()
-            return true
-        end
-    end
-    return true
-end
-
-function HomeScreen:onHold(_, ges)
-    for _index, zone in ipairs(self.tap_zones) do
-        if zone.hold and zone.rect:contains(ges.pos) then
-            zone.hold()
-            return true
-        end
-    end
-    return true
-end
-
-function HomeScreen:onClose()
-    UIManager:close(self)
-    return true
-end
-
-function HomeScreen:onCloseWidget()
-    if self.on_closed then self.on_closed() end
-    UIManager:setDirty(nil, "full")
 end
 
 return HomeScreen
