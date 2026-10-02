@@ -49,7 +49,7 @@ function DiscoverScreen:init()
 
     self.library = Books:list(Settings:booksDir())
     self:collect()
-    self:buildShelf()
+    self:build()
 end
 
 --- A Hardcover book as the shared cover tile understands it.
@@ -106,11 +106,7 @@ function DiscoverScreen:shelfSource()
 end
 
 function DiscoverScreen:build()
-    return self:buildShelf()
-end
-
-function DiscoverScreen:buildShelf()
-    HomeScreen.buildShelf(self)
+    HomeScreen.build(self)
     -- the status line doubles as "fetch again"
     self:zone(0, 0, self.screen_w, Dim.px(27), function() self:fetchAgain() end)
 end
@@ -234,7 +230,7 @@ end
 function DiscoverScreen:refresh()
     self.tap_zones = {}
     self.more_widget = nil
-    self:buildShelf()
+    self:build()
     UIManager:setDirty(self, "ui")
 end
 

@@ -1,9 +1,8 @@
 --[[--
-Nightstand's home screen: layout A, "hero and grid".
+Nightstand's home screen: the book being read, over shelves of covers.
 
-Bands, top to bottom: status strip, continue card, library header, cover
-grid, pager, tab bar. Heights come from fractions of the screen so the same
-code fits a 1404x1872 tablet, an 824x1648 phone and a desktop window.
+Bands, top to bottom: status strip, hero (the continue card), shelves, tab
+bar. Discover reuses this layout with its own hero and shelves.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
@@ -47,24 +46,6 @@ local BLACK = Blitbuffer.COLOR_BLACK
 local WHITE = Blitbuffer.COLOR_WHITE
 local GREY = Blitbuffer.COLOR_GRAY
 
--- Fractions of screen height, from the measured design.
-local BAND = {
-    status = 0.034,
-    hero   = 0.238,
-    -- The header row is centred in this band, so its height is the gap above
-    -- and below the row as well: rule, space, LIBRARY + filters, space, covers.
-    head   = 0.069,
-    pager  = 0.026,
-    tabs   = 0.044,
-}
-
--- Order matters: it is the order the segments appear in.
-local FILTERS = {
-    { id = "all",     label = "All" },
-    { id = "device",  label = "On device" },
-    { id = "reading", label = "Reading" },
-}
-
 local HomeScreen = InputContainer:extend{
     name = "nightstand_home",
     covers_fullscreen = true,
@@ -101,7 +82,6 @@ function HomeScreen:init()
     self.screen_w = Screen:getWidth()
     self.screen_h = Screen:getHeight()
     self.gutter = math.floor(self.screen_w * 0.023)
-    self.page = self.page or 1
     self.tap_zones = {}
 
     if Device:hasKeys() then
@@ -110,58 +90,12 @@ function HomeScreen:init()
     if Device:isTouchDevice() then
         local full = Geom:new{ x = 0, y = 0, w = self.screen_w, h = self.screen_h }
         self.ges_events.Tap = { GestureRange:new{ ges = "tap", range = full } }
-        self.ges_events.Swipe = { GestureRange:new{ ges = "swipe", range = full } }
         self.ges_events.Hold = { GestureRange:new{ ges = "hold", range = full } }
     end
 
     self.entries = Books:list(Settings:booksDir())
     self.current, self.fresh = Books:current(self.entries)
-    self.filter = self.filter or "all"
-    self:recompute()
     self:build()
-end
-
---- Everything that depends on the active filter. Called again on refresh,
---- because build() on its own would paint a stale page count.
-function HomeScreen:recompute()
-    self.shown = self:visibleEntries()
-    local area_w = self.screen_w - 2 * self.gutter
-    local grid_h = self:gridHeight()
-    self.row_gap = Dim.px(10)
-    self.cols, self.cover_w, self.gap = self:metrics(area_w, 163)
-    local cell_h = math.floor(self.cover_w * 1.5) + self:captionHeight()
-    self.rows = math.max(1, math.floor((grid_h + self.row_gap) / (cell_h + self.row_gap)))
-    self.per_page = self.cols * self.rows
-    self.pages = math.max(1, math.ceil(#self.shown / self.per_page))
-    if self.page > self.pages then self.page = self.pages end
-end
-
---- How many covers fit across, and how wide each is.
---- Driven by a target cell width in device-independent units, so a 1404 px
---- tablet lands on four and an 824 px phone on three; the covers are then
---- sized to fill the row exactly, leaving only a thin gap between them.
-function HomeScreen:metrics(area_w, target_dp)
-    local gap = Dim.px(8)
-    local cols = math.max(2, math.floor(area_w / Dim.px(target_dp) + 0.5))
-    local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
-    return cols, cover_w, gap
-end
-
-function HomeScreen:visibleEntries()
-    if self.filter == "all" then return self.entries end
-    local out = {}
-    for _, entry in ipairs(self.entries) do
-        local keep = (self.filter == "device" and entry.on_device)
-                  or (self.filter == "reading" and entry.status == "reading")
-        if keep then table.insert(out, entry) end
-    end
-    return out
-end
-
-function HomeScreen:setFilter(id)
-    if self.filter == id then return end
-    self.filter, self.page = id, 1
-    self:refresh()
 end
 
 function HomeScreen:zone(x, y, w, h, callback, on_hold)
@@ -169,15 +103,8 @@ function HomeScreen:zone(x, y, w, h, callback, on_hold)
                                    cb = callback, hold = on_hold })
 end
 
+--- A tall continue card over labelled shelves of bare covers.
 function HomeScreen:build()
-    if Settings:get("layout") == "shelf" then
-        return self:buildShelf()
-    end
-    return self:buildGrid()
-end
-
---- Layout B: a tall continue card over labelled shelves of bare covers.
-function HomeScreen:buildShelf()
     local w, h = self.screen_w, self.screen_h
     local status_h = Dim.px(27)
     local tabs_h = self:tabsHeight()
@@ -382,72 +309,6 @@ function HomeScreen:stripBand(shelf, h, band_y)
     return band(w, h, self.gutter, inner)
 end
 
---- Band heights for the grid layout; recompute() sizes the grid from the
---- same numbers build draws with, so the rows always fit.
-function HomeScreen:gridHeights()
-    local h = self.screen_h
-    local heights = {}
-    for key, fraction in pairs(BAND) do
-        heights[key] = math.floor(h * fraction)
-    end
-    heights.tabs = self:tabsHeight()
-    heights.tabs_margin = self:tabsMargin()
-    heights.grid = h - heights.status - heights.hero - heights.head
-                     - heights.pager - heights.tabs - heights.tabs_margin
-    return heights
-end
-
-function HomeScreen:gridHeight()
-    return self:gridHeights().grid
-end
-
-function HomeScreen:buildGrid()
-    local w, h = self.screen_w, self.screen_h
-    local heights = self:gridHeights()
-
-    local y = 0
-    local stack = VerticalGroup:new{ align = "left" }
-
-    local function add(widget, height)
-        table.insert(stack, widget)
-        y = y + height
-    end
-
-    -- each rule is taken out of the band above it, so the stack sums to h
-    local line = Size.line.thin
-    add(self:statusBand(heights.status - line), heights.status - line)
-    add(rule(w), line)
-
-    local hero_y = y
-    add(self:heroBand(heights.hero - line, hero_y), heights.hero - line)
-    add(rule(w), line)
-
-    -- Each band needs the y it starts at, so read it before add() moves on.
-    local head_y = y
-    add(self:headBand(heights.head, head_y), heights.head)
-
-    local grid_y = y
-    add(self:gridBand(heights.grid, grid_y), heights.grid)
-
-    local pager_y = y
-    add(self:pagerBand(heights.pager, pager_y), heights.pager)
-
-    add(VerticalSpan:new{ width = heights.tabs_margin }, heights.tabs_margin)
-    local tabs_y = y
-    add(self:tabsBand(heights.tabs, tabs_y), heights.tabs)
-
-    self[1] = FrameContainer:new{
-        width = w,
-        height = h,
-        background = WHITE,
-        bordersize = 0,
-        padding = 0,
-        margin = 0,
-        stack,
-    }
-    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
-end
-
 function HomeScreen:statusText()
     local server = Settings:get("server"):gsub("^https?://", "")
     if server == "" then server = _("no server set") end
@@ -635,51 +496,6 @@ function HomeScreen:heroDetails(entry, meta_w)
     return progress
 end
 
-function HomeScreen:filterCell(spec, active)
-    return FrameContainer:new{
-        background = active and BLACK or WHITE,
-        color = BLACK,
-        bordersize = Size.border.thin,
-        padding = Dim.pad.small,
-        margin = 0,
-        radius = 0,
-        text(spec.label, "infont", 11, active and WHITE or BLACK),
-    }
-end
-
-function HomeScreen:headBand(h, band_y)
-    local strip = HorizontalGroup:new{ align = "center" }
-    local widths, total = {}, 0
-    for index, spec in ipairs(FILTERS) do
-        local cell = self:filterCell(spec, self.filter == spec.id)
-        local cell_w = cell:getSize().w
-        widths[index] = cell_w
-        total = total + cell_w
-        table.insert(strip, cell)
-    end
-
-    local inner_w = self.screen_w - 2 * self.gutter
-    local strip_x = self.gutter + inner_w - total
-    local running = strip_x
-    for index, spec in ipairs(FILTERS) do
-        local cell_w = widths[index]
-        local id = spec.id
-        self:zone(running, band_y, cell_w, h, function() self:setFilter(id) end)
-        running = running + cell_w
-    end
-
-    local label = text(T(_("LIBRARY  ·  %1 books"), #self.shown), "infont", 12)
-    return LeftContainer:new{
-        dimen = Geom:new{ w = self.screen_w, h = h },
-        HorizontalGroup:new{
-            align = "center",
-            hspan(self.gutter),
-            LeftContainer:new{ dimen = Geom:new{ w = inner_w - total, h = h }, label },
-            strip,
-        },
-    }
-end
-
 --- Two lines of caption, measured rather than guessed: a fixed fraction of
 --- the band was reserving nearly twice what the text needs.
 function HomeScreen:captionHeight()
@@ -689,55 +505,6 @@ function HomeScreen:captionHeight()
     title:free()
     status:free()
     return total
-end
-
-function HomeScreen:gridBand(h, band_y)
-    local w = self.screen_w
-    local row_gap = self.row_gap
-    local caption_h = self:captionHeight()
-    local cover_w, gap = self.cover_w, self.gap
-    local cover_h = math.floor(cover_w * 1.5)
-    local cell_h = cover_h + caption_h
-
-    local grid = VerticalGroup:new{ align = "left" }
-    local first = (self.page - 1) * self.per_page + 1
-
-    for row = 1, self.rows do
-        local line = HorizontalGroup:new{ align = "top" }
-        for col = 1, self.cols do
-            local idx = first + (row - 1) * self.cols + (col - 1)
-            local entry = self.shown[idx]
-            if col > 1 then table.insert(line, hspan(gap)) end
-            if entry then
-                local cell = VerticalGroup:new{ align = "left" }
-                table.insert(cell, self:coverTile(entry, cover_w, cover_h))
-                table.insert(cell, text(entry.title, SERIF, 12, BLACK, cover_w))
-                table.insert(cell, text(Books:progressTag(entry), "infont", 10, GREY, cover_w))
-                table.insert(line, cell)
-
-                local x = self.gutter + (col - 1) * (cover_w + gap)
-                local cy = band_y + (row - 1) * (cell_h + row_gap)
-                self:zone(x, cy, cover_w, cover_h, function() self:openBook(entry) end)
-            else
-                table.insert(line, hspan(cover_w))
-            end
-        end
-        table.insert(grid, line)
-        if row < self.rows then
-            table.insert(grid, VerticalSpan:new{ width = row_gap })
-        end
-    end
-
-    return band(w, h, self.gutter, grid)
-end
-
-function HomeScreen:pagerBand(h, band_y)
-    local label = T(_("‹   Page %1 of %2   ›"), self.page, self.pages)
-    local widget = text(label, "infont", 12, GREY)
-    local third = math.floor(self.screen_w / 3)
-    self:zone(0, band_y, third, h, function() self:turnPage(-1) end)
-    self:zone(2 * third, band_y, third, h, function() self:turnPage(1) end)
-    return CenterContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, widget }
 end
 
 function HomeScreen:tabsBand(h, band_y)
@@ -879,13 +646,6 @@ function HomeScreen:downloadAndOpen(entry)
     require("apps/reader/readerui"):showReader(result)
 end
 
-function HomeScreen:turnPage(delta)
-    local page = self.page + delta
-    if page < 1 or page > self.pages then return end
-    self.page = page
-    self:refresh()
-end
-
 function HomeScreen:onTab(id)
     if id == "home" then return end
     if self.plugin then self.plugin:openTab(id) end
@@ -901,7 +661,6 @@ end
 function HomeScreen:refresh()
     self.tap_zones = {}
     self.more_widget = nil
-    self:recompute()
     self:build()
     UIManager:setDirty(self, "ui")
 end
@@ -922,15 +681,6 @@ function HomeScreen:onHold(_, ges)
             zone.hold()
             return true
         end
-    end
-    return true
-end
-
-function HomeScreen:onSwipe(_, ges)
-    if ges.direction == "west" then
-        self:turnPage(1)
-    elseif ges.direction == "east" then
-        self:turnPage(-1)
     end
     return true
 end

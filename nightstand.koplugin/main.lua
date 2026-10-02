@@ -214,19 +214,6 @@ function Nightstand:editServer()
     dialog:onShowKeyboard()
 end
 
-function Nightstand:layoutMenu()
-    local items = {}
-    for _index, layout in ipairs(Settings.LAYOUTS) do
-        table.insert(items, {
-            text = layout.name,
-            radio = true,
-            checked_func = function() return Settings:get("layout") == layout.id end,
-            callback = function() Settings:set("layout", layout.id) end,
-        })
-    end
-    return items
-end
-
 function Nightstand:addToMainMenu(menu_items)
     menu_items.nightstand = {
         text = MENU_TEXT,
@@ -277,12 +264,6 @@ function Nightstand:addToMainMenu(menu_items)
                 checked_func = function() return Settings:get("refresh_on_wake") end,
                 callback = function() Settings:toggle("refresh_on_wake") end,
                 separator = true,
-            },
-            {
-                text_func = function()
-                    return T(_("Home layout: %1"), Settings:layoutName())
-                end,
-                sub_item_table_func = function() return self:layoutMenu() end,
             },
             {
                 text = _("Download over Wi-Fi only"),

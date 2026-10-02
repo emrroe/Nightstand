@@ -42,13 +42,6 @@ QR code and a short code; approve it on your phone at hardcover.app/link. No
 password or token is ever typed on the reader, and the connection can be
 revoked from Hardcover's connected-apps list or with **Disconnect** here.
 
-## Layouts
-
-| id | Name | Shape |
-|----|------|-------|
-| `shelf` | Shelf stack | A continue card, then labelled shelves of covers. **Default.** |
-| `hero_grid` | Hero and grid | A continue card, then a paged grid with captions. |
-
 ## Install
 
 Copy `nightstand.koplugin/` into KOReader's plugin folder:

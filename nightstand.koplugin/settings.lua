@@ -3,15 +3,7 @@ local LuaSettings = require("luasettings")
 
 local Settings = {}
 
--- Layout ids are stable: they are written to disk and referenced by the
--- layout modules, so renaming one breaks existing installs.
-Settings.LAYOUTS = {
-    { id = "shelf",     name = "Shelf stack" },
-    { id = "hero_grid", name = "Hero and grid" },
-}
-
 Settings.DEFAULTS = {
-    layout = "shelf",
     replace_file_browser = true,
     server = "",
     username = "",
@@ -58,14 +50,6 @@ function Settings:booksDir()
         if lfs.attributes(guess, "mode") == "directory" then return guess end
     end
     return ""
-end
-
-function Settings:layoutName()
-    local current = self:get("layout")
-    for _, layout in ipairs(self.LAYOUTS) do
-        if layout.id == current then return layout.name end
-    end
-    return current
 end
 
 return Settings

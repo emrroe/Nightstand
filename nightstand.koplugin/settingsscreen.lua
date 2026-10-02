@@ -133,10 +133,6 @@ function SettingsScreen:groups()
             { label = _("Update positions when the device wakes"), key = "refresh_on_wake" },
         }},
         { _("Hardcover"), self:hardcoverRows() },
-        { _("Home screen"), {
-            { label = _("Layout"), value = Settings:layoutName(),
-              action = function() self:cycleLayout() end },
-        }},
         { _("Downloads"), {
             { label = _("Over Wi-Fi only"), key = "wifi_only" },
         }},
@@ -251,18 +247,6 @@ function SettingsScreen:confirmUnlink()
             self:rebuild()
         end,
     })
-end
-
-function SettingsScreen:cycleLayout()
-    local current = Settings:get("layout")
-    local layouts = Settings.LAYOUTS
-    for index, layout in ipairs(layouts) do
-        if layout.id == current then
-            Settings:set("layout", layouts[index % #layouts + 1].id)
-            break
-        end
-    end
-    self:rebuild()
 end
 
 function SettingsScreen:rebuild()

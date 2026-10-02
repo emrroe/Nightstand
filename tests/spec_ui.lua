@@ -210,22 +210,13 @@ end
 for _, name in ipairs({ "fresh install", "no books folder", "local files only", "catalogue with covers",
                         "mixed with positions", "500 hostile books", "a single book" }) do
     T.describe(SIZE .. " › " .. name, function()
-        for _, layout in ipairs({ "shelf", "hero_grid" }) do
-            T.it("home (" .. layout .. ") paints, zones on screen, every tap survives", function()
-                DATASETS[name]()
-                require("settings"):set("layout", layout)
-                local home = quiet(require("homescreen"):new{ plugin = plugin() })
-                paint(home, "home")
-                checkZones(home, "home")
-                tapAll(home, "home")
-                if layout == "hero_grid" then
-                    for _, f in ipairs({ "all", "device", "reading" }) do
-                        home:setFilter(f)
-                        for _ = 1, home.pages + 1 do home:turnPage(1); paint(home, "home page") end
-                    end
-                end
-            end)
-        end
+        T.it("home paints, zones on screen, every tap survives", function()
+            DATASETS[name]()
+            local home = quiet(require("homescreen"):new{ plugin = plugin() })
+            paint(home, "home")
+            checkZones(home, "home")
+            tapAll(home, "home")
+        end)
 
         T.it("library: every filter × sort × direction", function()
             DATASETS[name]()

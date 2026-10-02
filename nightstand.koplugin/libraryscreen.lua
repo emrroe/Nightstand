@@ -347,10 +347,29 @@ function LibraryScreen:cell(item, cover_w, cover_h)
 end
 
 function LibraryScreen:pagerBand(h, band_y)
-    if self.pages <= 1 then
-        return VerticalSpan:new{ width = h }
+    if self.pages <= 1 then return VerticalSpan:new{ width = h } end
+    local label = T(_("‹   Page %1 of %2   ›"), self.page, self.pages)
+    local widget = text(label, "infont", 12, GREY)
+    local third = math.floor(self.screen_w / 3)
+    self:zone(0, band_y, third, h, function() self:turnPage(-1) end)
+    self:zone(2 * third, band_y, third, h, function() self:turnPage(1) end)
+    return CenterContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, widget }
+end
+
+function LibraryScreen:turnPage(delta)
+    local page = self.page + delta
+    if page < 1 or page > self.pages then return end
+    self.page = page
+    self:refresh()
+end
+
+function LibraryScreen:onSwipe(_, ges)
+    if ges.direction == "west" then
+        self:turnPage(1)
+    elseif ges.direction == "east" then
+        self:turnPage(-1)
     end
-    return HomeScreen.pagerBand(self, h, band_y)
+    return true
 end
 
 -- behaviour ---------------------------------------------------------------------
@@ -361,6 +380,13 @@ function LibraryScreen:activate(item)
         return self:refresh()
     end
     self:openBook(item)
+end
+
+function LibraryScreen:refresh()
+    self.tap_zones = {}
+    self:recompute()
+    self:build()
+    UIManager:setDirty(self, "ui")
 end
 
 function LibraryScreen:closeGroup()
