@@ -26,8 +26,12 @@ local TextWidget = require("ui/widget/textwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
+local ConfirmBox = require("ui/widget/confirmbox")
+local NetworkMgr = require("ui/network/manager")
 local Availability = require("availability")
 local Catalog = require("catalog")
+local Hardcover = require("hardcover")
+local HardcoverLink = require("hardcoverlink")
 local Settings = require("settings")
 local TabBar = require("tabbar")
 local _ = require("gettext")
@@ -127,6 +131,9 @@ function SettingsScreen:groups()
               action = function() plugin:refreshCatalogue() self:rebuild() end },
             { label = _("Refresh when the device wakes"), key = "refresh_on_wake" },
         }},
+        { _("Hardcover"), {
+            self:hardcoverRow(),
+        }},
         { _("Home screen"), {
             { label = _("Layout"), value = Settings:layoutName(),
               action = function() self:cycleLayout() end },
@@ -149,6 +156,39 @@ function SettingsScreen:groups()
               action = function() plugin:openKoreaderMenu() end },
         }},
     }
+end
+
+function SettingsScreen:hardcoverRow()
+    if not Hardcover:isAvailable() then
+        return { label = _("Account"), value = _("not available in this build") }
+    end
+    if Hardcover:isLinked() then
+        local name = Hardcover:username()
+        return { label = _("Account"), value = name and ("@" .. name) or _("connected"),
+                 action = function() self:confirmUnlink() end }
+    end
+    return { label = _("Account"), value = _("Connect ›"),
+             action = function() self:openLink() end }
+end
+
+function SettingsScreen:openLink()
+    NetworkMgr:runWhenOnline(function()
+        UIManager:show(HardcoverLink:new{
+            on_linked = function() self:rebuild() end,
+        })
+    end)
+end
+
+function SettingsScreen:confirmUnlink()
+    UIManager:show(ConfirmBox:new{
+        text = T(_("Disconnect Hardcover account @%1 from this device?"), Hardcover:username() or "?"),
+        ok_text = _("Disconnect"),
+        ok_callback = function()
+            -- offline, the token is only forgotten; it lapses on Hardcover's side
+            if NetworkMgr:isOnline() then Hardcover:unlink() else Hardcover:forget() end
+            self:rebuild()
+        end,
+    })
 end
 
 function SettingsScreen:cycleLayout()

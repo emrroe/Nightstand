@@ -43,6 +43,11 @@ function Settings:set(key, value)
     self:open():flush()
 end
 
+function Settings:delete(key)
+    self:open():delSetting(key)
+    self:open():flush()
+end
+
 function Settings:toggle(key)
     self:set(key, not self:get(key))
 end

@@ -11,18 +11,19 @@ on.
 
 ## Status
 
-Layout A works against a real CWA server. The catalogue merges with the local
-folder, server-only books carry a download badge, tapping one fetches it and
-opens it, and covers are fetched once and kept on disk. Layouts B and C are
-not built yet.
+The home screen works against a real CWA server: a continue-reading card,
+then shelves of covers. The catalogue merges with the local folder,
+server-only books carry a download badge, tapping one fetches it and opens
+it, and covers are fetched once and kept on disk. The footer has Home,
+Library and Settings; Library is not built yet.
 
-## Layouts
+## Hardcover
 
-| id | Name | Shape |
-|----|------|-------|
-| `hero_grid` | Hero and grid | Continue card, then a 4 × 2 grid with captions. **Default.** |
-| `shelf` | Shelf stack | A larger continue card, then two labelled strips of five. |
-| `list` | List first | A compact continue bar, then one rich row per book. |
+Connecting a [Hardcover](https://hardcover.app) account is optional and is
+done per device under **Settings → Hardcover → Account**. Nightstand shows a
+QR code and a short code; approve it on your phone at hardcover.app/link. No
+password or token is ever typed on the reader, and the connection can be
+revoked from Hardcover's connected-apps list or with **Disconnect** here.
 
 ## Install
 
