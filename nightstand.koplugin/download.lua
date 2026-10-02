@@ -30,9 +30,11 @@ function Download:destinationFor(entry)
 
     local dir = books .. "/" .. author
     if lfs.attributes(dir, "mode") ~= "directory" then
-        lfs.mkdir(dir)
+        util.makePath(dir)
     end
-    return string.format("%s/%s - %s.epub", dir, title, author)
+    -- the format is in CWA's link: /opds/download/<id>/<format>/
+    local format = (entry.download_url or ""):match("/opds/download/%d+/(%w+)/?$") or "epub"
+    return string.format("%s/%s - %s.%s", dir, title, author, format:lower())
 end
 
 --- Returns ok, path-or-error. On success `entry` is updated in place so the

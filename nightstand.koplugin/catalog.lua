@@ -161,8 +161,23 @@ function Catalog:entryBlocks(path)
     return blocks
 end
 
+--- The acquisition link to use, EPUB when the book has several formats,
+--- and that file's size.
+local function downloadIn(block)
+    local first, first_size
+    for attrs in block:gmatch("<link([^>]*)>") do
+        if attrs:match('rel="http://opds%-spec.org/acquisition"') then
+            local href = attrs:match('href="([^"]*)"')
+            local size = tonumber(attrs:match('length="(%d+)"'))
+            if href and attrs:match('type="application/epub%+zip"') then return href, size end
+            if not first then first, first_size = href, size end
+        end
+    end
+    return first, first_size
+end
+
 local function bookIdIn(block)
-    local download = linksIn(block)["http://opds-spec.org/acquisition"]
+    local download = downloadIn(block)
     return download and tonumber(download:match("/opds/download/(%d+)/"))
 end
 
@@ -237,10 +252,8 @@ function Catalog:refresh()
     local entries = {}
     for _, block in ipairs(blocks) do
         local links = linksIn(block)
-        local download = links["http://opds-spec.org/acquisition"]
+        local download, size = downloadIn(block)
         if download then
-            local length = block:match('rel="http://opds%-spec.org/acquisition"[^>]-length="(%d+)"')
-                        or block:match('length="(%d+)"[^>]-rel="http://opds%-spec.org/acquisition"')
             table.insert(entries, {
                 title = decode(block:match("<title>(.-)</title>")),
                 summary = summaryIn(block),
@@ -249,7 +262,7 @@ function Catalog:refresh()
                 published = block:match("<published>(.-)</published>"),
                 language = block:match("<dcterms:language>(.-)</dcterms:language>"),
                 genres = genresIn(block),
-                size = tonumber(length),
+                size = size,
                 cover_url = links["http://opds-spec.org/image"],
                 download_url = download,
                 -- /opds/download/<id>/epub/ -- the Calibre id is the useful part

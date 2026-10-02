@@ -249,6 +249,26 @@ T.describe("downloads", function()
         T.ok(entry.on_device and entry.checksum, "entry updated in place")
         T.eq(require("availability").map[entry.checksum], path, "availability knows")
     end)
+    T.it("a PDF-only book is saved as .pdf, and a missing books folder is created", function()
+        local dir = Fakes.booksDir() .. "/not/there/yet"
+        require("settings"):set("books_dir", dir)
+        local routes = Fakes.library({ { id = 7, title = "Manual", authors = { "Acme" } } })
+        routes["/opds/download/7/pdf/"] = "PDFDATA"
+        Fakes.cwa(routes)
+        local entry = { title = "Manual", author = "Acme", download_url = "/opds/download/7/pdf/" }
+        local ok, path = require("download"):book(entry)
+        T.ok(ok, tostring(path))
+        T.eq(path, dir .. "/Acme/Manual - Acme.pdf")
+    end)
+    T.it("EPUB is chosen when a book comes in several formats", function()
+        Fakes.cwa({ ["/opds/books/letter/00"] = Fakes.feed({ [[<entry><title>Two</title>
+            <link rel="http://opds-spec.org/acquisition" href="/opds/download/9/pdf/" length="5" type="application/pdf"/>
+            <link rel="http://opds-spec.org/acquisition" href="/opds/download/9/epub/" length="7" type="application/epub+zip"/>
+            </entry>]] }) })
+        local e = assert(require("catalog"):refresh())[1]
+        T.eq(e.download_url, "/opds/download/9/epub/")
+        T.eq(e.size, 7)
+    end)
     T.it("unsafe characters in titles do not escape the books folder", function()
         local dir = setup({}, { { id = 4, title = "../../etc: a/b?", authors = { "Who/Me" } } })
         local entry = require("books"):list(dir)[1]
