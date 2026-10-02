@@ -20,8 +20,6 @@ local TabBar = {
     TABS = {
         { id = "home",     label = "HOME" },
         { id = "library",  label = "LIBRARY" },
-        { id = "series",   label = "SERIES" },
-        { id = "authors",  label = "AUTHORS" },
         { id = "settings", label = "SETTINGS" },
     },
 }
