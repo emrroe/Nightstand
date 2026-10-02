@@ -15,7 +15,7 @@ function Net.onMobileData()
     local ok, result = pcall(function()
         local android = require("android")
         local C = require("ffi").C
-        local _, kind = android.getNetworkInfo()
+        local _connected, kind = android.getNetworkInfo()
         return tonumber(kind) == C.ANETWORK_MOBILE
     end)
     return ok and result or false

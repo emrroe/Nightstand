@@ -198,7 +198,7 @@ function Catalog:idsIn(path)
     local blocks = self:entryBlocks(path)
     if not blocks then return nil end
     local ids = {}
-    for _, block in ipairs(blocks) do
+    for _index, block in ipairs(blocks) do
         local id = bookIdIn(block)
         if id then table.insert(ids, id) end
     end
@@ -210,7 +210,7 @@ end
 function Catalog:seriesById()
     local out = {}
     local index = self:entryBlocks("/opds/series/letter/00")
-    for _, block in ipairs(index or {}) do
+    for _index, block in ipairs(index or {}) do
         local name = decode(block:match("<title>(.-)</title>"))
         local href
         for attrs in block:gmatch("<link([^>]*)>") do
@@ -250,7 +250,7 @@ function Catalog:refresh()
     end
 
     local entries = {}
-    for _, block in ipairs(blocks) do
+    for _index, block in ipairs(blocks) do
         local links = linksIn(block)
         local download, size = downloadIn(block)
         if download then
@@ -277,12 +277,12 @@ function Catalog:refresh()
     local added = self:idsIn("/opds/new")
     local series = self:seriesById()
     local read = {}
-    for _, id in ipairs(self:idsIn("/opds/readbooks") or {}) do read[id] = true end
+    for _index, id in ipairs(self:idsIn("/opds/readbooks") or {}) do read[id] = true end
     local rank = {}
     for position, id in ipairs(added or {}) do rank[id] = position end
     local previous = {}
-    for _, old in ipairs(self:load() or {}) do previous[old.book_id] = old end
-    for _, entry in ipairs(entries) do
+    for _index, old in ipairs(self:load() or {}) do previous[old.book_id] = old end
+    for _index, entry in ipairs(entries) do
         entry.added_rank = rank[entry.book_id]
         local s = series[entry.book_id]
         if s then

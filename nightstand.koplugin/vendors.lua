@@ -27,14 +27,14 @@ end
 
 function Vendors.all()
     local list = {}
-    for _, v in ipairs(Vendors.BUILT_IN) do table.insert(list, v) end
-    for _, v in ipairs(Settings:get("custom_vendors") or {}) do table.insert(list, v) end
+    for _index, v in ipairs(Vendors.BUILT_IN) do table.insert(list, v) end
+    for _index, v in ipairs(Settings:get("custom_vendors") or {}) do table.insert(list, v) end
     return list
 end
 
 function Vendors.current()
     local id = Settings:get("vendor") or "kobo"
-    for _, v in ipairs(Vendors.all()) do
+    for _index, v in ipairs(Vendors.all()) do
         if v.id == id then return v end
     end
     return Vendors.BUILT_IN[1]

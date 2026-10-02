@@ -294,7 +294,10 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
                 return true
             end
             assert(Discover:refresh("Wind and Truth"))
-            Discover:fetchCovers(12)
+            for id = 1, 12 do
+                local book = Discover:load().books[id]
+                if book then Discover:fetchCover(book) end
+            end
 
             local home = quiet(require("homescreen"):new{ plugin = plugin() })
             paint(home, "home linked")
@@ -311,9 +314,18 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
                     T.ok(ok, "hold on zone " .. i .. ": " .. tostring(err))
                 end
             end
+            -- every list, every page, and the Want to read view
+            for _, spec in ipairs(screen:availableLists()) do
+                screen:showList(spec.id)
+                for _ = 1, screen.pages + 1 do screen:turnPage(1); paint(screen, "discover " .. spec.id) end
+            end
+            screen:showList("want")
+            paint(screen, "discover want")
+            checkZones(screen, "discover want")
+            T.ok(screen:onClose(), "back leaves Want to read")
+            T.ok(screen.list ~= "want")
             -- want-to-read round trip through the screen
-            local entry = screen.current
-            screen:toggleWanted(entry)
+            screen:toggleWanted(screen.entries[1])
             paint(screen, "discover after want")
             T.ok(server, "server used")
         end)

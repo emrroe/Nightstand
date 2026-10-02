@@ -29,7 +29,7 @@ local TabBar = {
 function TabBar.tabs()
     local linked = require("hardcover"):isLinked()
     local out = {}
-    for _, tab in ipairs(TabBar.TABS) do
+    for _index, tab in ipairs(TabBar.TABS) do
         if linked or not tab.needs_hardcover then table.insert(out, tab) end
     end
     return out

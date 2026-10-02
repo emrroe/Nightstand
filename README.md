@@ -26,13 +26,14 @@ come from CWA's book data since OPDS leaves them out.
 ## Discover
 
 With a [Hardcover](https://hardcover.app) account connected, a Discover tab
-appears: a Top Pick up front, then Want to read, Recommended for you, More
-like the book being read, and Top picks — the same lists Hardcover's own
-Discover page is built from. Books the CWA library already holds are marked
-and open like any other; the rest open a details sheet with Want to read and
-a lookup at a shop or library of your choice (Kobo, Open Library, WorldCat,
-or your own search URL), shown as a QR code for devices without a browser.
-Long-press a cover for that lookup directly.
+appears: a paged list of books with cover, author, rating, year, length and
+the start of the description. Chips switch between For you, Top picks and
+More like the book being read; your Want to read list sits behind its own
+button. Books the CWA library already holds say so and open like any other;
+the rest open a details sheet with Want to read and a lookup at a shop or
+library of your choice (Kobo, Open Library, WorldCat, or your own search
+URL), shown as a QR code for devices without a browser. Long-press a book for
+that lookup directly.
 
 ## Hardcover
 

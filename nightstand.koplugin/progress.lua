@@ -72,7 +72,7 @@ end
 --- checksum, catalogue ones by their id. Returns how many have a position.
 function Progress:refreshAll(entries, wanted)
     local found = 0
-    for _, entry in ipairs(entries) do
+    for _index, entry in ipairs(entries) do
         if (not wanted or wanted(entry)) and self:refreshEntry(entry) then
             found = found + 1
         end

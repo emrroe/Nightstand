@@ -24,7 +24,7 @@ local Discover = { data = nil }
 Discover.WANT, Discover.READING, Discover.READ = 1, 2, 3
 
 -- how many books per list get details and covers
-local PER_LIST = 24
+local PER_LIST = 60
 
 local function storePath()
     return DataStorage:getSettingsDir() .. "/nightstand_discover.lua"
@@ -55,7 +55,7 @@ end
 
 local function authorsOf(contributors)
     local names = {}
-    for _, c in ipairs(val(contributors) or {}) do
+    for _index, c in ipairs(val(contributors) or {}) do
         local author = val(c.author)
         local role = val(c.contribution)
         if author and val(author.name) and (role == nil or role == "Author") then
@@ -99,7 +99,7 @@ function Discover:refresh(current_title)
         { u = uid })
     if not mine then return nil, err end
     local library, want = {}, {}
-    for _, ub in ipairs(val(mine.user_books) or {}) do
+    for _index, ub in ipairs(val(mine.user_books) or {}) do
         library[ub.book_id] = { id = ub.id, status = val(ub.status_id) }
         if val(ub.status_id) == Discover.WANT then table.insert(want, ub.book_id) end
     end
@@ -108,7 +108,7 @@ function Discover:refresh(current_title)
         "query($u:Int!){ vibes(where:{user_id:{_eq:$u}, vibe_type:{_in:[1,3]}}){ vibe_type cached_book_ids } }",
         { u = uid })
     local lists = { want = want, top = {}, recs = {}, similar = {} }
-    for _, vibe in ipairs(vibes and val(vibes.vibes) or {}) do
+    for _index, vibe in ipairs(vibes and val(vibes.vibes) or {}) do
         local ids = val(vibe.cached_book_ids) or {}
         if vibe.vibe_type == 3 then lists.top = ids end
         if vibe.vibe_type == 1 then lists.recs = ids end
@@ -131,7 +131,7 @@ function Discover:refresh(current_title)
     local wanted, order = {}, {}
     local function trim(ids, keep_want)
         local out = {}
-        for _, id in ipairs(ids) do
+        for _index, id in ipairs(ids) do
             local status = library[id] and library[id].status
             local seen_it = status == Discover.READ or status == Discover.READING
             if not seen_it and (keep_want or status ~= Discover.WANT) and #out < PER_LIST then
@@ -153,7 +153,7 @@ function Discover:refresh(current_title)
         local found = Hardcover:query(
             "query($ids:[Int!]){ books(where:{id:{_in:$ids}}){ " .. BOOK_FIELDS .. " } }",
             { ids = batch })
-        for _, raw in ipairs(found and val(found.books) or {}) do
+        for _index, raw in ipairs(found and val(found.books) or {}) do
             books[raw.id] = bookOf(raw)
         end
     end
@@ -218,22 +218,6 @@ function Discover:fetchCover(book)
     return true
 end
 
-function Discover:fetchCovers(limit)
-    local data = self:load()
-    if not data then return 0 end
-    local fetched = 0
-    for _, name in ipairs({ "top", "want", "recs", "similar" }) do
-        for i, id in ipairs(data.lists[name] or {}) do
-            if i > (limit or 12) then break end
-            local book = data.books[id]
-            if book and not self:hasCover(id, book.image_url) and self:fetchCover(book) then
-                fetched = fetched + 1
-            end
-        end
-    end
-    return fetched
-end
-
 -- the reader's library -------------------------------------------------------------
 
 function Discover:isWanted(hc_id)
@@ -264,7 +248,7 @@ function Discover:setWanted(hc_id, wanted)
         if val(result.error) then return false, result.error end
         data.library[hc_id] = { id = val(result.id) or (entry and entry.id), status = Discover.WANT }
         local present = false
-        for _, id in ipairs(data.lists.want) do if id == hc_id then present = true end end
+        for _index, id in ipairs(data.lists.want) do if id == hc_id then present = true end end
         if not present then table.insert(data.lists.want, 1, hc_id) end
     else
         if not entry then return true end
@@ -296,7 +280,7 @@ end
 --- The catalogue entry for a Hardcover book, when the library already has it.
 function Discover.match(book, entries)
     local title, who = norm(book.title), surname(book.author)
-    for _, entry in ipairs(entries or {}) do
+    for _index, entry in ipairs(entries or {}) do
         if norm(entry.title) == title and (who == "" or surname(entry.author) == who) then
             return entry
         end

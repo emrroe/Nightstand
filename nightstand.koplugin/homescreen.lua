@@ -46,7 +46,7 @@ function HomeScreen:build()
     local tabs_margin = self:tabsMargin()
 
     local all = {}
-    for _, shelf in ipairs(self:shelfSource()) do
+    for _index, shelf in ipairs(self:shelfSource()) do
         if #shelf.books > 0 then table.insert(all, shelf) end
     end
 
@@ -55,9 +55,9 @@ function HomeScreen:build()
     -- plan, so plan, de-duplicate, and plan again with what is left.
     local function distinct(cols)
         local seen, out = {}, {}
-        for _, shelf in ipairs(all) do
+        for _index, shelf in ipairs(all) do
             local books = {}
-            for _, book in ipairs(shelf.books) do
+            for _index, book in ipairs(shelf.books) do
                 if not seen[book] then table.insert(books, book) end
             end
             if #books > 0 then
@@ -172,7 +172,7 @@ function HomeScreen:shelfPlan(max_count, status_h, footer_h)
     end
 
     local best
-    for _, plan in ipairs(plans) do
+    for _index, plan in ipairs(plans) do
         if plan.off <= tolerance then
             if not best or best.off > tolerance or plan.cover_w > best.cover_w then best = plan end
         elseif not best or (best.off > tolerance and plan.off < best.off) then
@@ -326,7 +326,7 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
 
     local function heights(list)
         local sum = 0
-        for _, widget in ipairs(list) do sum = sum + widget:getSize().h end
+        for _index, widget in ipairs(list) do sum = sum + widget:getSize().h end
         return sum
     end
     local used = Dim.pad.small + title:getSize().h + (author and author:getSize().h or 0)
@@ -362,7 +362,7 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         end
         put(VerticalSpan:new{ width = gap })
     end
-    for _, widget in ipairs(details) do put(widget) end
+    for _index, widget in ipairs(details) do put(widget) end
 
     if more then
         -- the hero block is centred in its band; "more" sits more_offset below its top
@@ -410,7 +410,7 @@ function HomeScreen:heroDetails(entry, meta_w)
             else
                 -- too long for one line on a narrow screen: one fact per line
                 joined:free()
-                for _, part in ipairs(parts) do
+                for _index, part in ipairs(parts) do
                     table.insert(progress, text(part, "infont", 12, GREY, meta_w))
                 end
             end

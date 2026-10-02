@@ -60,7 +60,7 @@ function LibraryScreen:recompute()
 
     if self.groups and self.open_group then
         self.items = {}
-        for _, group in ipairs(self.groups) do
+        for _index, group in ipairs(self.groups) do
             if group.name == self.open_group then self.items = group.books end
         end
         self.showing_groups = false
@@ -378,7 +378,7 @@ end
 function LibraryScreen:menu(title, list, current, on_pick, mark)
     local buttons = {}
     local dialog
-    for _, spec in ipairs(list) do
+    for _index, spec in ipairs(list) do
         local label = spec.label
         if spec.id == current then label = "✓  " .. label .. (mark or "") end
         table.insert(buttons, {{

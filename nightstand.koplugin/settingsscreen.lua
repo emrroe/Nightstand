@@ -87,7 +87,7 @@ function SettingsScreen:chooseVendor()
     local current = Vendors.current().id
     local dialog
     local buttons = {}
-    for _, vendor in ipairs(Vendors.all()) do
+    for _index, vendor in ipairs(Vendors.all()) do
         table.insert(buttons, {{
             text = (vendor.id == current and "✓  " or "") .. vendor.name,
             align = "left",
@@ -205,12 +205,12 @@ function SettingsScreen:build()
         return header_h + #group[2] * (row_h + Size.line.thin)
     end
     local total = 0
-    for _, group in ipairs(groups) do total = total + groupHeight(group) end
+    for _index, group in ipairs(groups) do total = total + groupHeight(group) end
     local room = h - y - tabs_h - tabs_margin
     local columns = { groups }
     if total > room then
         local left, right, acc = {}, {}, 0
-        for _, group in ipairs(groups) do
+        for _index, group in ipairs(groups) do
             if acc + groupHeight(group) / 2 <= total / 2 then
                 table.insert(left, group)
                 acc = acc + groupHeight(group)

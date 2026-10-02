@@ -66,7 +66,6 @@ function Nightstand:openDiscover(force)
         UIManager:forceRePaint()
         local current = Books:current(Books:list(Settings:booksDir()))
         local ok, err = Discover:refresh(current and current.title)
-        if ok then Discover:fetchCovers(12) end
         UIManager:close(working)
         if not ok and not data then
             UIManager:show(InfoMessage:new{ text = T(_("Could not reach Hardcover.\n%1"), tostring(err)) })
@@ -131,7 +130,7 @@ function Nightstand:onResume()
         local home = shown_home
         if not (home and UIManager:isWidgetShown(home) and Net.isOnline()) then return end
         local moving = {}
-        for _, entry in ipairs(home.entries) do
+        for _index, entry in ipairs(home.entries) do
             if entry.on_device or entry.status == "reading" then table.insert(moving, entry) end
         end
         self:refreshInBackground(moving, true)
@@ -158,7 +157,7 @@ end
 function Nightstand:refreshInBackground(shelf, positions_only)
     if not positions_only and Net.mayDownload() then
         local missing = {}
-        for _, entry in ipairs(shelf) do
+        for _index, entry in ipairs(shelf) do
             if not entry.on_device and entry.book_id and not CoverCache:hasRemote(entry.book_id) then
                 table.insert(missing, entry)
             end
@@ -175,7 +174,7 @@ end
 
 --- While background work runs, the visible screen redraws as results arrive.
 local function redrawWhileLoading(final)
-    for _, screen in ipairs({ shown_home }) do
+    for _index, screen in ipairs({ shown_home }) do
         if screen and UIManager:isWidgetShown(screen) then
             if final then screen:reload() else screen:refresh() end
         end

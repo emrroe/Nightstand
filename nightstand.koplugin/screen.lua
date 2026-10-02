@@ -75,7 +75,7 @@ function NightstandScreen:zone(x, y, w, h, on_tap, on_hold)
 end
 
 function NightstandScreen:onTap(_, ges)
-    for _, zone in ipairs(self.tap_zones) do
+    for _index, zone in ipairs(self.tap_zones) do
         if zone.tap and zone.rect:contains(ges.pos) then
             zone.tap()
             return true
@@ -85,7 +85,7 @@ function NightstandScreen:onTap(_, ges)
 end
 
 function NightstandScreen:onHold(_, ges)
-    for _, zone in ipairs(self.tap_zones) do
+    for _index, zone in ipairs(self.tap_zones) do
         if zone.hold and zone.rect:contains(ges.pos) then
             zone.hold()
             return true

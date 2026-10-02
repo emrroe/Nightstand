@@ -102,7 +102,7 @@ function Books:list(books_dir)
         for index, item in ipairs(catalogue) do
             local key = norm(item.title)
             if not claimed[index] and key ~= "" then
-                for _, candidate in ipairs(locals) do
+                for _index, candidate in ipairs(locals) do
                     if not candidate.taken and titleMatches(candidate.key, key, item.author, pass) then
                         candidate.taken = true
                         claimed[index] = candidate.entry
@@ -129,22 +129,22 @@ function Books:list(books_dir)
             }
             table.insert(entries, entry)
         end
-        for _, key in ipairs(CATALOGUE_FIELDS) do entry[key] = item[key] end
+        for _index, key in ipairs(CATALOGUE_FIELDS) do entry[key] = item[key] end
         entry.added = item.updated
         if item.read_on_server and entry.status ~= "reading" then
             entry.status = "complete"
         end
     end
 
-    for _, entry in ipairs(entries) do
+    for _index, entry in ipairs(entries) do
         self:applyPosition(entry, Progress:get(Progress.bookKey(entry.book_id)))
     end
 
     local last_read = {}
-    for _, item in ipairs(ReadHistory.hist or {}) do
+    for _index, item in ipairs(ReadHistory.hist or {}) do
         last_read[item.file] = math.max(last_read[item.file] or 0, item.time or 0)
     end
-    for _, entry in ipairs(entries) do
+    for _index, entry in ipairs(entries) do
         local here = entry.file and last_read[entry.file] or 0
         local there = entry.server_read_at or 0
         if here > 0 or there > 0 then entry.last_read = math.max(here, there) end
@@ -164,7 +164,7 @@ end
 function Books:current(entries)
     -- the book in progress you touched last, wherever you touched it
     local best
-    for _, entry in ipairs(entries) do
+    for _index, entry in ipairs(entries) do
         if entry.status == "reading" and entry.percent then
             local at, best_at = entry.last_read or 0, best and best.last_read or 0
             if not best or at > best_at or (at == best_at and entry.percent > best.percent) then
@@ -178,7 +178,7 @@ function Books:current(entries)
     local next_up = self:nextInSeries(entries)[1]
     if next_up then return next_up, true end
     local newest
-    for _, entry in ipairs(entries) do
+    for _index, entry in ipairs(entries) do
         if entry.status ~= "complete" and entry.added_rank
            and (not newest or entry.added_rank < newest.added_rank) then
             newest = entry
@@ -199,7 +199,7 @@ end
 function Books:shelves(entries, skip)
     local function pick(test, sort)
         local out = {}
-        for _, entry in ipairs(entries) do
+        for _index, entry in ipairs(entries) do
             if entry ~= skip and test(entry) then table.insert(out, entry) end
         end
         if sort then table.sort(out, sort) end
@@ -229,7 +229,7 @@ end
 --- most recently come first.
 function Books:nextInSeries(entries, skip)
     local series = {}
-    for _, e in ipairs(entries) do
+    for _index, e in ipairs(entries) do
         if e.series and e.series_index then
             local s = series[e.series]
             if not s then
@@ -244,10 +244,10 @@ function Books:nextInSeries(entries, skip)
         end
     end
     local out = {}
-    for _, s in pairs(series) do
+    for _index, s in pairs(series) do
         if s.reached then
             local next_book
-            for _, e in ipairs(s.books) do
+            for _index, e in ipairs(s.books) do
                 if e.series_index > s.reached and e.status ~= "complete" and e.status ~= "reading"
                    and (not next_book or e.series_index < next_book.series_index) then
                     next_book = e

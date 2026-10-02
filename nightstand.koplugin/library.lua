@@ -34,7 +34,7 @@ Library.GROUPS = {
 }
 
 function Library.find(list, id)
-    for _, item in ipairs(list) do
+    for _index, item in ipairs(list) do
         if item.id == id then return item end
     end
     return list[1]
@@ -114,7 +114,7 @@ local TESTS = {
 function Library.filter(entries, filter_id)
     local test = TESTS[filter_id] or TESTS.all
     local out = {}
-    for _, entry in ipairs(entries) do
+    for _index, entry in ipairs(entries) do
         if test(entry) then table.insert(out, entry) end
     end
     return out
@@ -139,8 +139,8 @@ function Library.groups(entries, group_id, sort_id, descending)
     local members = MEMBERSHIP[group_id]
     if not members then return nil end
     local by_name, groups = {}, {}
-    for _, entry in ipairs(entries) do
-        for _, name in ipairs(members(entry)) do
+    for _index, entry in ipairs(entries) do
+        for _index, name in ipairs(members(entry)) do
             local group = by_name[name]
             if not group then
                 group = { name = name, books = {} }
@@ -153,7 +153,7 @@ function Library.groups(entries, group_id, sort_id, descending)
     local name_key = group_id == "authors" and surnameKey
         or function(name) return sortTitle(name) end
     table.sort(groups, function(a, b) return name_key(a.name) < name_key(b.name) end)
-    for _, group in ipairs(groups) do
+    for _index, group in ipairs(groups) do
         if group_id == "series" then
             group.books = Library.sort(group.books, "series", false)
         else
