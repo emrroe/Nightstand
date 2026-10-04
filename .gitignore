@@ -2,3 +2,4 @@
 *~
 .luacheckcache
 .claude/settings.local.json
+dist/

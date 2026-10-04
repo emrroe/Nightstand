@@ -24,6 +24,7 @@ local Availability = require("availability")
 local Catalog = require("catalog")
 local Hardcover = require("hardcover")
 local HardcoverLink = require("hardcoverlink")
+local Updater = require("updater")
 local Vendors = require("vendors")
 local Settings = require("settings")
 local TabBar = require("tabbar")
@@ -70,7 +71,75 @@ function SettingsScreen:groups()
             { label = _("All KOReader settings"), chevron = true,
               action = function() plugin:openKoreaderMenu() end },
         }},
+        { _("About"), {
+            { label = _("Version"), value = Updater.currentVersion() },
+            { label = _("Check for updates"), value = self:updateStatus(),
+              action = function() self:checkForUpdates() end },
+        }},
     }
+end
+
+function SettingsScreen:updateStatus()
+    if Updater.isDevelopmentCopy() then return _("development copy") end
+    local available = Settings:get("update_available")
+    if available and Updater.newer(available, Updater.currentVersion()) then
+        return T(_("%1 available"), available)
+    end
+    return ""
+end
+
+--- Look for a newer release, and offer to install it.
+function SettingsScreen:checkForUpdates()
+    local InfoMessage = require("ui/widget/infomessage")
+    if Updater.isDevelopmentCopy() then
+        UIManager:show(InfoMessage:new{
+            text = _("This copy of Nightstand runs from a development checkout. Update it with git instead."),
+        })
+        return
+    end
+    require("net").whenOnline(function()
+        local working = InfoMessage:new{ text = _("Checking for updates…") }
+        UIManager:show(working)
+        UIManager:forceRePaint()
+        local release, err = Updater.latest()
+        UIManager:close(working)
+        if not release then
+            UIManager:show(InfoMessage:new{ text = T(_("Could not check for updates.\n%1"), tostring(err)) })
+            return
+        end
+        local current = Updater.currentVersion()
+        if not Updater.newer(release.version, current) then
+            Settings:delete("update_available")
+            self:refresh()
+            UIManager:show(InfoMessage:new{ text = T(_("Nightstand %1 is the latest version."), current) })
+            return
+        end
+        Settings:set("update_available", release.version)
+        self:refresh()
+        local notes = release.notes:gsub("\r", "")
+        if #notes > 700 then notes = notes:sub(1, 700) .. "…" end
+        UIManager:show(require("ui/widget/confirmbox"):new{
+            text = T(_("Nightstand %1 is available. You have %2.\n\n%3\n\nInstall it now? KOReader restarts afterwards."),
+                     release.version, current, notes),
+            ok_text = _("Update"),
+            ok_callback = function() self:installUpdate(release) end,
+        })
+    end)
+end
+
+function SettingsScreen:installUpdate(release)
+    local InfoMessage = require("ui/widget/infomessage")
+    local working = InfoMessage:new{ text = T(_("Installing Nightstand %1…"), release.version) }
+    UIManager:show(working)
+    UIManager:forceRePaint()
+    local ok, err = Updater.install(release)
+    UIManager:close(working)
+    if not ok then
+        UIManager:show(InfoMessage:new{ text = T(_("The update failed; nothing was changed.\n%1"), tostring(err)) })
+        return
+    end
+    Settings:delete("update_available")
+    UIManager:askForRestart(T(_("Nightstand %1 is installed. Restart KOReader to use it."), release.version))
 end
 
 function SettingsScreen:hardcoverRows()
