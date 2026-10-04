@@ -159,6 +159,17 @@ function Fakes.cwa(routes)
         if body == nil then return nil, "404" end
         return body
     end
+    Catalog.request = function(self, method, path, body)
+        if method == "GET" then return self:get(path) end
+        if method == "PUT" and path == "/kosync/syncs/progress" then
+            local record = require("rapidjson").decode(body)
+            table.insert(calls, "PUT " .. record.document)
+            record.timestamp = os.time()
+            routes["/kosync/syncs/progress/" .. record.document] = require("rapidjson").encode(record)
+            return '{"document": "' .. record.document .. '"}'
+        end
+        return nil, "405"
+    end
     Catalog.fetchTo = function(_, path, dest)
         table.insert(calls, path)
         local body = routes[path]

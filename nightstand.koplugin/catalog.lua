@@ -41,18 +41,24 @@ local function credentials()
     return user, password
 end
 
---- One HTTP GET against the configured server. Returns body or nil, err.
-function Catalog:get(path)
+--- One HTTP request against the configured server. Returns body or nil, err.
+function Catalog:request(method, path, body, content_type)
     local server = Settings:get("server"):gsub("/+$", "")
     if server == "" then return nil, "no server configured" end
     local user, password = credentials()
 
     local sink = {}
+    local headers = { ["Accept-Encoding"] = "identity" }
+    if body then
+        headers["Content-Type"] = content_type or "application/json"
+        headers["Content-Length"] = tostring(#body)
+    end
     socketutil:set_timeout(10, 30)
     local code, _headers, status = socket.skip(1, http.request{
         url = server .. path,
-        method = "GET",
-        headers = { ["Accept-Encoding"] = "identity" },
+        method = method,
+        headers = headers,
+        source = body and ltn12.source.string(body) or nil,
         sink = ltn12.sink.table(sink),
         user = user,
         password = password,
@@ -62,8 +68,12 @@ function Catalog:get(path)
     if code ~= 200 then
         return nil, tostring(status or code)
     end
-    local body = table.concat(sink)
-    return body ~= "" and body or nil, body == "" and "empty response" or nil
+    local text = table.concat(sink)
+    return text ~= "" and text or nil, text == "" and "empty response" or nil
+end
+
+function Catalog:get(path)
+    return self:request("GET", path)
 end
 
 -- KOReader's OPDS parser keeps only the last of any repeated element except

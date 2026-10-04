@@ -45,6 +45,12 @@ function Nightstand:init()
     end
 end
 
+--- In the reader: stop the sync plugin from silently moving another
+--- device's position backwards.
+function Nightstand:onReaderReady()
+    if self.ui.document then require("syncguard").attach(self.ui) end
+end
+
 --- Nightstand's own settings screen.
 function Nightstand:openSettings()
     UIManager:show(require("settingsscreen"):new{ plugin = self }, "ui")

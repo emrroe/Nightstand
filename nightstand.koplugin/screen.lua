@@ -125,8 +125,10 @@ function NightstandScreen:openBook(entry)
     require("bookactions").open(self, entry)
 end
 
---- Long-press on a cover; only Discover does something with it.
-function NightstandScreen:holdBook(_entry) end
+--- Long-press on a cover: earlier reading positions to go back to.
+function NightstandScreen:holdBook(entry)
+    require("bookactions").hold(self, entry)
+end
 
 --- A header control that opens a menu: grey label, value, and a mark.
 function NightstandScreen.control(label, value, mark)
