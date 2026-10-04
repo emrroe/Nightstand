@@ -92,15 +92,9 @@ function LibraryScreen:recompute()
         self.showing_groups = false
     end
 
-    -- the pager only takes room when there is more than one page
-    local above = self:headerHeight()
-    local below = TabBar.height() + TabBar.margin()
-    self.with_pager = false
-    self:planContent(self.screen_h - above - below)
-    if self.pages > 1 then
-        self.with_pager = true
-        self:planContent(self.screen_h - above - below - self:pagerHeight())
-    end
+    -- the pager keeps its room even on one page, so the grid never shifts
+    local below = TabBar.height() + TabBar.margin() + self:pagerHeight()
+    self:planContent(self.screen_h - self:headerHeight() - below)
     if self.page > self.pages then self.page = self.pages end
 end
 
@@ -115,7 +109,7 @@ function LibraryScreen:planContent(h)
         self.plan = Rows.plan(self.screen_w, h)
     else
         local gap = W.GAP
-        self.plan = CoverGrid.plan(self.screen_w - 2 * self.gutter, h - 2 * gap, #self.items)
+        self.plan = CoverGrid.plan(self.screen_w - 2 * self.gutter, h - 2 * gap)
         self.plan.top = gap
     end
     self.per_page = self.plan.per_page or self.plan.cols * self.plan.rows
@@ -152,9 +146,7 @@ function LibraryScreen:build()
         stack:add(self:filterTabs(self:tabsHeight(), stack.y), self:tabsHeight())
     end
     stack:add(self:content(self.content_h, stack.y), self.content_h)
-    if self.with_pager then
-        stack:add(self:pagerBand(self:pagerHeight(), stack.y), self:pagerHeight())
-    end
+    stack:add(self:pagerBand(self:pagerHeight(), stack.y), self:pagerHeight())
     stack:space(TabBar.margin())
     stack:add(self:tabsBand(TabBar.height(), stack.y), TabBar.height())
     self:setContent(stack.group)

@@ -22,42 +22,10 @@ local CoverGrid = {}
 -- cells further than this from 2:3 would crop too much of the cover
 local MIN_ASPECT, MAX_ASPECT = 1.3, 1.7
 
---- Exactly `count` books: the columns giving the largest covers, each cell
---- then stretched towards the free space as far as cropping allows.
-local function countPlan(w, h, count, gap, min_cols)
-    local best
-    for c = min_cols or 1, math.max(min_cols or 1, count) do
-        local rows = math.ceil(count / c)
-        local max_w = math.floor((w - (c - 1) * gap) / c)
-        local max_h = math.floor((h - (rows - 1) * gap) / rows)
-        local cell_w = math.min(max_w, math.floor(max_h / W.COVER_ASPECT))
-        if not best or cell_w > best.cell_w then
-            best = { cols = c, rows = rows, gap = gap, cell_w = cell_w,
-                     cell_h = math.min(max_h, math.floor(cell_w * MAX_ASPECT)) }
-            best.cell_w = math.min(max_w, math.max(cell_w, math.floor(best.cell_h / MIN_ASPECT)))
-        end
-    end
-    return best
-end
-
---- Columns, rows and cell size for `w` x `h`; with `count`, a page with room
---- to spare enlarges its covers, and a few books that would spill onto a
---- page of their own are fitted on the first instead.
-function CoverGrid.plan(w, h, count)
+--- Columns, rows and cell size for `w` x `h`. The layout never depends on
+--- how many books there are: a short page leaves its end empty.
+function CoverGrid.plan(w, h)
     local gap = W.GAP
-    local full = CoverGrid.fullPlan(w, h, gap)
-    local per_page = full.cols * full.rows
-    if count and count > 0 and count < per_page then
-        local few = countPlan(w, h, count, gap)
-        if few.cell_w > full.cell_w then return few end
-    elseif count and count > per_page and count <= per_page + full.cols then
-        local denser = countPlan(w, h, count, gap, full.cols + 1)
-        if denser.cell_w >= 0.75 * full.cell_w then return denser end
-    end
-    return full
-end
-
-function CoverGrid.fullPlan(w, h, gap)
     local cols = math.max(4, math.floor((w + gap) / (Dim.px(100) + gap) + 0.5))
     local best
     for c = cols, cols + 3 do

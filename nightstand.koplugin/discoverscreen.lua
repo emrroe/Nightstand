@@ -111,7 +111,7 @@ function DiscoverScreen:build()
         self.plan = Rows.plan(w, list_h)
         self.per_page = self.plan.per_page
     else
-        self.plan = CoverGrid.plan(w - 2 * self.gutter, list_h - 2 * W.GAP, #self.entries)
+        self.plan = CoverGrid.plan(w - 2 * self.gutter, list_h - 2 * W.GAP)
         self.per_page = self.plan.cols * self.plan.rows
     end
     self.pages = math.max(1, math.ceil(#self.entries / self.per_page))
