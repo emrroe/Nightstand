@@ -15,7 +15,7 @@ local CoverTile = require("covertile")
 local Dim = require("dim")
 local W = require("widgets")
 
-local BLACK, GREY, SERIF = W.BLACK, W.GREY, W.SERIF
+local BLACK, MUTED, BOLD, REGULAR = W.BLACK, W.MUTED, W.BOLD, W.REGULAR
 
 local Rows = {}
 
@@ -78,21 +78,21 @@ function Rows.row(spec, w, h, gutter)
     end
 
     -- the title gets a second line only if it needs one and the row has room
-    local title_lines = math.max(1, math.min(2, fits(spec.title, SERIF, 15), lines(SERIF, 15) - 1))
-    put(box(spec.title, SERIF, 15, BLACK, text_w, title_lines))
-    if spec.author and spec.author ~= "" and lines("cfont", 12) >= 1 then
-        put(W.text(spec.author, "cfont", 12, GREY, text_w))
+    local title_lines = math.max(1, math.min(2, fits(spec.title, BOLD, 14.5), lines(BOLD, 14.5) - 1))
+    put(box(spec.title, BOLD, 14.5, BLACK, text_w, title_lines))
+    if spec.author and spec.author ~= "" and lines(REGULAR, 12) >= 1 then
+        put(W.text(spec.author, REGULAR, 12, MUTED, text_w))
     end
-    if spec.facts and #spec.facts > 0 and lines("infont", 11) >= 1 then
+    if spec.facts and #spec.facts > 0 and lines(REGULAR, 11) >= 1 then
         -- the dot is held to the fact before it, so a wrapped line never starts with one
         local kept = {}
         for i, fact in ipairs(spec.facts) do kept[i] = fact:gsub(" ", "\u{00A0}") end
         local facts = table.concat(kept, "\u{00A0}·  ")
-        put(box(facts, "infont", 11, BLACK, text_w,
-                math.min(2, fits(facts, "infont", 11), lines("infont", 11))))
+        put(box(facts, REGULAR, 11, BLACK, text_w,
+                math.min(2, fits(facts, REGULAR, 11), lines(REGULAR, 11))))
     end
-    if spec.blurb and spec.blurb ~= "" and lines("cfont", 12) >= 1 then
-        put(box(spec.blurb, "cfont", 12, GREY, text_w, lines("cfont", 12)))
+    if spec.blurb and spec.blurb ~= "" and lines(REGULAR, 12) >= 1 then
+        put(box(spec.blurb, REGULAR, 12, MUTED, text_w, lines(REGULAR, 12)))
     end
 
     return VerticalGroup:new{

@@ -9,7 +9,6 @@ local CenterContainer = require("ui/widget/container/centercontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
-local ProgressWidget = require("ui/widget/progresswidget")
 local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
@@ -26,7 +25,7 @@ local T = require("ffi/util").template
 
 local W = require("widgets")
 local text, hspan, rule, band = W.text, W.hspan, W.rule, W.band
-local BLACK, WHITE, GREY, SERIF = W.BLACK, W.WHITE, W.GREY, W.SERIF
+local BLACK, MUTED, BOLD, REGULAR = W.BLACK, W.MUTED, W.BOLD, W.REGULAR
 
 local HomeScreen = NightstandScreen:extend{
     name = "nightstand_home",
@@ -62,7 +61,8 @@ function HomeScreen:build()
             end
             if #books > 0 then
                 for i = 1, math.min(cols, #books) do seen[books[i]] = true end
-                table.insert(out, { label = shelf.label, books = books, total = #shelf.books })
+                table.insert(out, { label = shelf.label, books = books, total = #shelf.books,
+                                   see_all = shelf.see_all })
             end
         end
         return out
@@ -102,7 +102,7 @@ function HomeScreen:build()
             -- a fresh install: nothing local and no catalogue fetched yet
             add(CenterContainer:new{
                 dimen = Geom:new{ w = w, h = each },
-                text(_("No books yet. Refresh the catalogue under Settings."), "cfont", 15, GREY),
+                text(_("No books yet. Refresh the catalogue under Settings."), REGULAR, 14, MUTED),
             }, each)
         end
     end
@@ -147,7 +147,7 @@ function HomeScreen:tabsMargin()
 end
 
 function HomeScreen:labelHeight()
-    return W.lineHeight("infont", 11)
+    return W.lineHeight(BOLD, 14.5)
 end
 
 --- Works out how many shelves, how many covers per shelf, and what is left
@@ -212,13 +212,40 @@ function HomeScreen:heroCoverWidth(hero_h)
     return math.floor((hero_h - 2 * pad) / W.COVER_ASPECT)
 end
 
-function HomeScreen:shelfHeader(shelf)
-    return HorizontalGroup:new{
+--- "Recently added 21" on the left, "See all ›" on the right when the
+--- Library can show the whole shelf.
+function HomeScreen:shelfHeader(shelf, band_y)
+    local inner_w = self.screen_w - 2 * self.gutter
+    local label_h = self:labelHeight()
+    local left = HorizontalGroup:new{
         align = "bottom",
-        text(shelf.label:upper(), "infont", 11, GREY),
+        text(shelf.label, BOLD, 14.5, BLACK),
         hspan(Dim.pad.default),
-        text(T("(%1)", shelf.total or #shelf.books), "infont", 10, GREY),
+        text(tostring(shelf.total or #shelf.books), REGULAR, 11, MUTED),
     }
+    local row = HorizontalGroup:new{ align = "center" }
+    if shelf.see_all then
+        local more = text(_("See all ›"), REGULAR, 11, MUTED)
+        local more_w = more:getSize().w
+        table.insert(row, LeftContainer:new{ dimen = Geom:new{ w = inner_w - more_w, h = label_h }, left })
+        table.insert(row, more)
+        local target = shelf.see_all
+        self:zone(self.screen_w - self.gutter - more_w - Dim.pad.large, band_y - Dim.pad.default,
+                  more_w + Dim.pad.large + self.gutter, label_h + 2 * Dim.pad.default,
+                  function() self:seeAll(target) end)
+    else
+        table.insert(row, LeftContainer:new{ dimen = Geom:new{ w = inner_w, h = label_h }, left })
+    end
+    return row
+end
+
+--- Opens the Library on the books a shelf was drawn from.
+function HomeScreen:seeAll(target)
+    Settings:set("library_group", "books")
+    Settings:set("library_filter", target.filter)
+    Settings:set("library_sort", target.sort)
+    Settings:set("library_descending", target.descending)
+    if self.plugin then self.plugin:openTab("library") end
 end
 
 function HomeScreen:stripBand(shelf, h, band_y)
@@ -231,11 +258,11 @@ function HomeScreen:stripBand(shelf, h, band_y)
     local cover_h = W.coverHeight(cover_w)
     local label_h = self:labelHeight()
 
-    local header = self:shelfHeader(shelf)
-
-    local row = HorizontalGroup:new{ align = "top" }
     local content_h = label_h + Dim.pad.default + cover_h
     local top = band_y + math.floor((h - content_h) / 2)
+    local header = self:shelfHeader(shelf, top)
+
+    local row = HorizontalGroup:new{ align = "top" }
     for index = 1, cols do
         local entry = shelf.books[index]
         if index > 1 then table.insert(row, hspan(gap)) end
@@ -256,6 +283,18 @@ function HomeScreen:stripBand(shelf, h, band_y)
     table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
     table.insert(inner, row)
     return band(w, h, self.gutter, inner)
+end
+
+--- Text that wraps to at most `most` lines of `width`, cut with an ellipsis.
+local function wrapped(str, face, size, colour, width, most)
+    local box = TextBoxWidget:new{ text = str, face = Dim.face(face, size), fgcolor = colour, width = width }
+    local cap = most * W.lineHeight(face, size)
+    if box:getSize().h <= cap then return box end
+    box:free()
+    return TextBoxWidget:new{
+        text = str, face = Dim.face(face, size), fgcolor = colour, width = width,
+        height = cap, height_overflow_show_ellipsis = true,
+    }
 end
 
 --- A shelf of a few books, each a cover with its title, author and where
@@ -283,36 +322,28 @@ function HomeScreen:cardsBand(shelf, h, band_y)
         local function lines(face, size, most)
             return math.min(most, math.floor(room / W.lineHeight(face, size)))
         end
-        local title = TextBoxWidget:new{ text = entry.title, face = Dim.face(SERIF, 14), width = text_w }
-        local most = lines(SERIF, 14, 3)
-        if title:getSize().h > most * W.lineHeight(SERIF, 14) then
-            title:free()
-            title = TextBoxWidget:new{
-                text = entry.title, face = Dim.face(SERIF, 14), width = text_w,
-                height = most * W.lineHeight(SERIF, 14), height_overflow_show_ellipsis = true,
-            }
+        put(wrapped(entry.title, BOLD, 13.5, BLACK, text_w, math.max(1, lines(BOLD, 13.5, 3))))
+        if entry.author ~= "" and lines(REGULAR, 11.5, 1) > 0 then
+            put(text(entry.author, REGULAR, 11.5, MUTED, text_w))
         end
-        put(title)
-        if entry.author ~= "" and lines("cfont", 12, 1) > 0 then
-            put(text(entry.author, "cfont", 12, GREY, text_w))
-        end
-        local fact = self:cardFact(entry)
-        if fact and lines("infont", 11, 1) > 0 then
-            local most = lines("infont", 11, 2) * W.lineHeight("infont", 11)
-            local widget = TextBoxWidget:new{ text = fact, face = Dim.face("infont", 11), width = text_w }
-            if widget:getSize().h > most then
-                widget:free()
-                widget = TextBoxWidget:new{ text = fact, face = Dim.face("infont", 11), width = text_w,
-                                            height = most, height_overflow_show_ellipsis = true }
-            end
-            put(widget)
-        end
-        if n == 1 and entry.summary and lines("cfont", 12, 99) > 0 then
-            put(TextBoxWidget:new{
-                text = entry.summary, face = Dim.face("cfont", 12), fgcolor = GREY, width = text_w,
-                height = lines("cfont", 12, 99) * W.lineHeight("cfont", 12),
-                height_overflow_show_ellipsis = true,
+        if Books.started(entry) and room > Dim.px(16) then
+            local pct = text(T("%1%", math.floor(entry.percent * 100 + 0.5)), REGULAR, 10.5, MUTED)
+            put(VerticalSpan:new{ width = Dim.pad.default })
+            put(HorizontalGroup:new{
+                align = "center",
+                W.progress(text_w - pct:getSize().w - Dim.pad.large, entry.percent),
+                hspan(Dim.pad.large),
+                pct,
             })
+        else
+            local fact = self:cardFact(entry)
+            if fact and lines(REGULAR, 11, 1) > 0 then
+                put(wrapped(fact, REGULAR, 11, BLACK, text_w, lines(REGULAR, 11, 2)))
+            end
+        end
+        if n == 1 and entry.summary and lines(REGULAR, 11.5, 99) > 0 then
+            put(VerticalSpan:new{ width = Dim.pad.default })
+            put(wrapped(entry.summary, REGULAR, 11.5, MUTED, text_w, lines(REGULAR, 11.5, 99)))
         end
         table.insert(row, HorizontalGroup:new{
             align = "top",
@@ -327,17 +358,15 @@ function HomeScreen:cardsBand(shelf, h, band_y)
     end
 
     local inner = VerticalGroup:new{ align = "left" }
-    table.insert(inner, self:shelfHeader(shelf))
+    table.insert(inner, self:shelfHeader(shelf, top))
     table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
     table.insert(inner, row)
     return band(self.screen_w, h, self.gutter, inner)
 end
 
---- Where you are in a card's book: how far, or which of its series it is.
+--- Where you are in a card's book that is not under way: which of its
+--- series it is.
 function HomeScreen:cardFact(entry)
-    if Books.started(entry) then
-        return T(_("%1% read"), math.floor(entry.percent * 100 + 0.5))
-    end
     if entry.series and entry.series_index then
         local n = entry.series_index
         return T(_("Book %1 of %2"), n == math.floor(n) and string.format("%d", n) or n, entry.series)
@@ -353,10 +382,10 @@ function HomeScreen:statusText()
 end
 
 function HomeScreen:statusBand(h)
-    local right = text(os.date("%H:%M"), "infont", 13, GREY)
+    local right = text(os.date("%H:%M"), REGULAR, 10.5, MUTED)
     local inner_w = self.screen_w - 2 * self.gutter
     -- never runs into the clock: cut with an ellipsis instead
-    local left = text(self:statusText(), "infont", 13, GREY,
+    local left = text(self:statusText(), REGULAR, 10.5, MUTED,
                       inner_w - right:getSize().w - Dim.pad.large)
     return LeftContainer:new{
         dimen = Geom:new{ w = self.screen_w, h = h },
@@ -374,48 +403,35 @@ function HomeScreen:heroEmpty(h)
          or _("Nothing in progress. Pick something below.")
     return band(self.screen_w, h, self.gutter, CenterContainer:new{
         dimen = Geom:new{ w = self.screen_w - 2 * self.gutter, h = h },
-        text(msg, "cfont", 17, GREY),
+        text(msg, REGULAR, 15, MUTED),
     })
-end
-
---- The title in the hero's serif, two lines at most.
-function HomeScreen:heroTitle(entry, w)
-    local face = Dim.face(SERIF, 22)
-    local title = TextBoxWidget:new{ text = entry.title, face = face, width = w, alignment = "left" }
-    local two_lines = 2 * W.lineHeight(SERIF, 22)
-    if title:getSize().h <= two_lines + 2 then return title end
-    title:free()
-    return TextBoxWidget:new{
-        text = entry.title, face = face, width = w, alignment = "left",
-        height = two_lines, height_overflow_show_ellipsis = true,
-    }
 end
 
 --- The blurb, cut to whole lines that fit `room`, plus a "more" link when
 --- it was cut. Either can be nil.
 function HomeScreen:heroBlurb(entry, w, room)
     if not entry.summary then return nil end
-    local face = Dim.face("cfont", 13)
-    local blurb = TextBoxWidget:new{
-        text = entry.summary, face = face, width = w, alignment = "left", fgcolor = GREY,
-    }
+    local face = Dim.face(REGULAR, 11.5)
+    local line_h = W.lineHeight(REGULAR, 11.5)
+    local blurb = TextBoxWidget:new{ text = entry.summary, face = face, width = w, fgcolor = MUTED }
     if blurb:getSize().h <= room then return blurb end
     blurb:free()
-    local more = text(_("more"), "infont", 12, BLACK)
-    local lines = math.floor((room - more:getSize().h) / W.lineHeight("cfont", 13))
-    if lines < 1 then
+    local more = text(_("more"), BOLD, 11, BLACK)
+    local lines = math.floor((room - more:getSize().h) / line_h)
+    if lines < 2 then
         more:free()
         return nil
     end
     return TextBoxWidget:new{
-        text = entry.summary, face = face, width = w, alignment = "left", fgcolor = GREY,
-        height = lines * W.lineHeight("cfont", 13), height_overflow_show_ellipsis = true,
+        text = entry.summary, face = face, width = w, fgcolor = MUTED,
+        height = lines * line_h, height_overflow_show_ellipsis = true,
     }, more
 end
 
---- The continue card: cover on the left, a column of text on the right that
---- fills the band. Title, author and details are placed first; the blurb gets
---- what is left, and when even that runs out the least important lines go.
+--- The continue card: cover on the left; on the right the title block at
+--- the top and the progress block at the bottom, the blurb between them
+--- getting whatever height is left. When even that runs out the least
+--- important lines go.
 function HomeScreen:heroBand(h, band_y, with_blurb)
     local entry = self.current
     if not entry then return self:heroEmpty(h) end
@@ -429,8 +445,9 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     local meta_w = self.screen_w - meta_x - self.gutter
     local gap = Dim.pad.default
 
-    local title = self:heroTitle(entry, meta_w)
-    local author = entry.author and entry.author ~= "" and text(entry.author, "cfont", 14, GREY, meta_w) or nil
+    local overline = text(self.fresh and _("Up next") or _("Continue reading"), BOLD, 10.5, MUTED, meta_w)
+    local title = wrapped(entry.title, BOLD, 20, BLACK, meta_w, 2)
+    local author = entry.author ~= "" and text(entry.author, REGULAR, 13, MUTED, meta_w) or nil
     local details = self:heroDetails(entry, meta_w)
 
     local function heights(list)
@@ -438,7 +455,7 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         for _index, widget in ipairs(list) do sum = sum + widget:getSize().h end
         return sum
     end
-    local used = Dim.pad.small + title:getSize().h + (author and author:getSize().h or 0)
+    local used = overline:getSize().h + title:getSize().h + (author and author:getSize().h or 0)
                  + gap + heights(details)
     while used > inner_h and #details > 2 do
         used = used - table.remove(details):getSize().h
@@ -447,9 +464,14 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         used = used - author:getSize().h
         author = nil
     end
+    if used > inner_h then
+        used = used - overline:getSize().h
+        overline:free()
+        overline = nil
+    end
 
     local blurb, more
-    if with_blurb then blurb, more = self:heroBlurb(entry, meta_w, inner_h - used - gap) end
+    if with_blurb then blurb, more = self:heroBlurb(entry, meta_w, inner_h - used - 2 * gap) end
 
     -- offsets are summed here: asking the group mid-build would freeze its layout
     local meta = VerticalGroup:new{ align = "left" }
@@ -458,24 +480,24 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         table.insert(meta, widget)
         meta_h = meta_h + widget:getSize().h
     end
-    put(VerticalSpan:new{ width = Dim.pad.small })
+    if overline then put(overline) end
     put(title)
     if author then put(author) end
-    put(VerticalSpan:new{ width = gap })
     local more_offset
     if blurb then
+        put(VerticalSpan:new{ width = gap })
         put(blurb)
         if more then
             more_offset = meta_h
             put(more)
         end
-        put(VerticalSpan:new{ width = gap })
     end
+    -- the progress block sits on the cover's bottom edge
+    put(VerticalSpan:new{ width = math.max(gap, inner_h - meta_h - heights(details)) })
     for _index, widget in ipairs(details) do put(widget) end
 
+    local top = band_y + math.floor((h - math.max(cover_h, meta_h)) / 2)
     if more then
-        -- the hero block is centred in its band; "more" sits more_offset below its top
-        local top = band_y + math.floor((h - math.max(cover_h, meta_h)) / 2)
         local size = more:getSize()
         self:zone(meta_x, top + more_offset, size.w, size.h,
                   function() self:showBlurb(entry.title, entry.summary) end)
@@ -487,46 +509,44 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
                 HorizontalGroup:new{ align = "top", tile, hspan(self.gutter), meta })
 end
 
---- What sits under the title and author: reading progress here, rating and
---- year on Discover. A list of widgets; the last ones are dropped first when
---- the hero runs out of room.
+--- "today 11:38", "yesterday", or "2 Oct".
+local function when(time)
+    if not time or time == 0 then return nil end
+    local day = os.date("%Y%m%d", time)
+    if day == os.date("%Y%m%d") then return T(_("today %1"), os.date("%H:%M", time)) end
+    if day == os.date("%Y%m%d", os.time() - 86400) then return _("yesterday") end
+    return os.date("%d %b", time)
+end
+
+--- The progress block under the title: percentage with the page on the
+--- same line, the bar, and where it was last read. Widgets, the last ones
+--- dropped first when the hero runs out of room.
 function HomeScreen:heroDetails(entry, meta_w)
-    local percent = entry.percent or 0
-    local progress = {}
     if self.fresh then
-        table.insert(progress, text(_("Not started"), "infont", 15, GREY))
-    else
-        table.insert(progress, text(T(_("%1% read"), math.floor(percent * 100 + 0.5)),
-                                    "infont", 15))
-        table.insert(progress, ProgressWidget:new{
-            width = meta_w, height = Dim.px(7),
-            percentage = percent, bordersize = 0,
-            fillcolor = BLACK, bgcolor = GREY,
-        })
-        local parts = {}
-        if entry.pages then
-            table.insert(parts, T(_("page %1 of %2"),
-                                  math.floor(percent * entry.pages + 0.5), entry.pages))
-        end
-        if entry.device then
-            table.insert(parts, T(_("from %1, %2"), entry.device,
-                                  os.date("%d %b %H:%M", entry.synced_at or os.time())))
-        end
-        if #parts > 0 then
-            local joined = text(table.concat(parts, "  ·  "), "infont", 12, GREY)
-            if joined:getSize().w <= meta_w then
-                table.insert(progress, joined)
-            else
-                -- too long for one line on a narrow screen: one fact per line
-                joined:free()
-                for _index, part in ipairs(parts) do
-                    table.insert(progress, text(part, "infont", 12, GREY, meta_w))
-                end
-            end
+        local fact = self:cardFact(entry)
+        return { text(fact and (fact .. " · " .. _("not started")) or _("Not started"),
+                      REGULAR, 11.5, MUTED, meta_w) }
+    end
+    local percent = entry.percent or 0
+    local pct = text(T("%1%", math.floor(percent * 100 + 0.5)), BOLD, 15, BLACK)
+    local line = HorizontalGroup:new{ align = "bottom", pct }
+    if entry.pages then
+        local page = text(T(_("page %1 of %2"), math.floor(percent * entry.pages + 0.5), entry.pages),
+                          REGULAR, 11, MUTED)
+        local room = meta_w - pct:getSize().w - page:getSize().w
+        if room >= Dim.pad.large then
+            table.insert(line, hspan(room))
+            table.insert(line, page)
+        else
+            page:free()
         end
     end
-
-    return progress
+    local out = { line, VerticalSpan:new{ width = Dim.pad.small }, W.progress(meta_w, percent, Dim.px(5)) }
+    local where = entry.device or _("On this device")
+    local at = when(entry.device and entry.synced_at or entry.last_read)
+    table.insert(out, VerticalSpan:new{ width = Dim.pad.small })
+    table.insert(out, text(at and (where .. " · " .. at) or where, REGULAR, 10.5, MUTED, meta_w))
+    return out
 end
 
 -- behaviour ----------------------------------------------------------------

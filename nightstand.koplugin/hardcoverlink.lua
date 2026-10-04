@@ -23,7 +23,7 @@ local Screen = Device.screen
 local T = require("ffi/util").template
 
 local W = require("widgets")
-local BLACK, GREY = W.BLACK, W.GREY
+local BLACK, MUTED = W.BLACK, W.MUTED
 
 local HardcoverLink = InputContainer:extend{
     name = "nightstand_hardcover_link",
@@ -113,14 +113,14 @@ function HardcoverLink:build()
     local qr_size = math.floor(math.min(w, h) * 0.42)
     local group = VerticalGroup:new{ align = "center" }
 
-    table.insert(group, line(_("Connect Hardcover"), W.SERIF, 22, BLACK, w))
+    table.insert(group, line(_("Connect Hardcover"), W.BOLD, 22, BLACK, w))
     table.insert(group, VerticalSpan:new{ width = Dim.px(12) })
 
     local device = self.device
     if device and self.state == "waiting" then
         table.insert(group, TextBoxWidget:new{
             text = _("Scan the code with your phone, or go to the address below and enter the code."),
-            face = Dim.face("cfont", 13),
+            face = Dim.face(W.REGULAR, 13),
             width = inner,
             alignment = "center",
         })
@@ -137,14 +137,14 @@ function HardcoverLink:build()
             },
         })
         table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
-        table.insert(group, line(device.verification_uri, "infont", 14, GREY, w))
+        table.insert(group, line(device.verification_uri, W.REGULAR, 14, MUTED, w))
         table.insert(group, line(device.user_code, "infont", 30, BLACK, w))
         table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
     else
         table.insert(group, VerticalSpan:new{ width = qr_size * 0.5 })
     end
 
-    table.insert(group, line(self:status(), "cfont", 13, GREY, w))
+    table.insert(group, line(self:status(), W.REGULAR, 13, MUTED, w))
     table.insert(group, VerticalSpan:new{ width = Dim.px(20) })
 
     local buttons = VerticalGroup:new{ align = "center" }

@@ -33,7 +33,7 @@ local T = require("ffi/util").template
 
 local W = require("widgets")
 local text, toggle = W.text, W.toggle
-local BLACK, GREY = W.BLACK, W.GREY
+local BLACK, MUTED, FAINT, BOLD, REGULAR = W.BLACK, W.MUTED, W.FAINT, W.BOLD, W.REGULAR
 
 local SettingsScreen = NightstandScreen:extend{
     name = "nightstand_settings",
@@ -192,10 +192,10 @@ function SettingsScreen:build()
         dimen = Geom:new{ w = w, h = title_h },
         HorizontalGroup:new{
             HorizontalSpan:new{ width = self.gutter },
-            text(_("Settings"), W.SERIF, 20),
+            text(_("Settings"), BOLD, 21),
         },
     }, title_h)
-    add(LineWidget:new{ background = GREY, dimen = Geom:new{ w = w, h = Size.line.thin } },
+    add(LineWidget:new{ background = FAINT, dimen = Geom:new{ w = w, h = Size.line.thin } },
         Size.line.thin)
 
     -- One column if it fits; otherwise (landscape) the groups are split
@@ -237,13 +237,13 @@ function SettingsScreen:build()
                 dimen = Geom:new{ w = col_w, h = header_h },
                 HorizontalGroup:new{
                     HorizontalSpan:new{ width = self.gutter },
-                    text(group[1]:upper(), "infont", 10, GREY),
+                    text(group[1], BOLD, 11.5, MUTED),
                 },
             }, header_h)
             for _i, item in ipairs(group[2]) do
                 put(self:rowBand(item, row_h, cy, x, col_w), row_h)
                 put(LineWidget:new{
-                        background = GREY,
+                        background = FAINT,
                         dimen = Geom:new{ w = col_w, h = Size.line.thin } },
                     Size.line.thin)
             end
@@ -271,9 +271,9 @@ function SettingsScreen:rowBand(row, h, band_y, band_x, w)
     if row.key ~= nil then
         right = toggle(Settings:get(row.key))
     elseif row.chevron then
-        right = text("›", "infont", 16, GREY)
+        right = text("›", REGULAR, 16, MUTED)
     else
-        right = text(row.value, "infont", 12, GREY,
+        right = text(row.value, REGULAR, 12, MUTED,
                      math.floor(w * 0.45))
     end
     local right_w = right:getSize().w
@@ -297,7 +297,7 @@ function SettingsScreen:rowBand(row, h, band_y, band_x, w)
             HorizontalSpan:new{ width = self.gutter },
             LeftContainer:new{
                 dimen = Geom:new{ w = label_w, h = h },
-                text(row.label, "cfont", 13, BLACK, label_w),
+                text(row.label, REGULAR, 13, BLACK, label_w),
             },
             RightContainer:new{
                 dimen = Geom:new{ w = right_w + Dim.pad.large, h = h },

@@ -12,7 +12,11 @@ local ButtonDialog = require("ui/widget/buttondialog")
 local Device = require("device")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local CenterContainer = require("ui/widget/container/centercontainer")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
+local LeftContainer = require("ui/widget/container/leftcontainer")
+local Size = require("ui/size")
+local VerticalGroup = require("ui/widget/verticalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local UIManager = require("ui/uimanager")
 local Dim = require("dim")
@@ -20,6 +24,7 @@ local Settings = require("settings")
 local TabBar = require("tabbar")
 local W = require("widgets")
 local _ = require("gettext")
+local T = require("ffi/util").template
 local Screen = Device.screen
 
 local NightstandScreen = InputContainer:extend{
@@ -87,7 +92,11 @@ function NightstandScreen:reload()
 end
 
 function NightstandScreen:zone(x, y, w, h, on_tap, on_hold)
-    table.insert(self.tap_zones, { rect = Geom:new{ x = x, y = y, w = w, h = h },
+    -- generous margins around a target may reach past the screen edge
+    local x0, y0 = math.max(0, math.floor(x)), math.max(0, math.floor(y))
+    local x1 = math.min(self.screen_w, math.floor(x + w))
+    local y1 = math.min(self.screen_h, math.floor(y + h))
+    table.insert(self.tap_zones, { rect = Geom:new{ x = x0, y = y0, w = x1 - x0, h = y1 - y0 },
                                    tap = on_tap, hold = on_hold })
 end
 
@@ -130,15 +139,84 @@ function NightstandScreen:holdBook(entry)
     require("bookactions").hold(self, entry)
 end
 
---- A header control that opens a menu: grey label, value, and a mark.
-function NightstandScreen.control(label, value, mark)
-    local group = HorizontalGroup:new{ align = "center" }
-    if label then
-        table.insert(group, W.text(label, "infont", 11, W.GREY))
-        table.insert(group, W.hspan(Dim.pad.large))
+--- A row of underlined tabs over a hairline; `tabs` are `{ label, active,
+--- on_tap }`. Tabs that do not fit are left off the end.
+function NightstandScreen:tabRow(h, band_y, tabs)
+    local row = HorizontalGroup:new{ align = "bottom" }
+    local x = self.gutter
+    local space = Dim.px(18)
+    local limit = self.screen_w - self.gutter
+    for index, tab in ipairs(tabs) do
+        local widget = W.tab(tab.label, tab.active, h - Size.line.thin)
+        local tab_w = widget:getSize().w
+        if x + tab_w > limit then
+            widget:free()
+            break
+        end
+        if index > 1 then table.insert(row, W.hspan(space)) end
+        table.insert(row, widget)
+        -- the gap either side belongs to the nearer tab
+        self:zone(x - space / 2, band_y, tab_w + space, h, tab.on_tap)
+        x = x + tab_w + space
     end
-    table.insert(group, W.text(value .. " " .. mark, "infont", 12, W.BLACK))
-    return group
+    return VerticalGroup:new{
+        align = "left",
+        LeftContainer:new{
+            dimen = Geom:new{ w = self.screen_w, h = h - Size.line.thin },
+            HorizontalGroup:new{ align = "bottom", W.hspan(self.gutter), row },
+        },
+        W.rule(self.screen_w),
+    }
+end
+
+--- Dropdowns side by side: `left` from the gutter, `right` against the far
+--- edge. Each is `{ widget, on_tap }`.
+function NightstandScreen:controlRow(h, band_y, left, right)
+    local space = Dim.px(18)
+    local row = HorizontalGroup:new{ align = "center", W.hspan(self.gutter) }
+    local x = self.gutter
+    for index, c in ipairs(left) do
+        if index > 1 then
+            table.insert(row, W.hspan(space))
+            x = x + space
+        end
+        local cw = c.widget:getSize().w
+        table.insert(row, c.widget)
+        self:zone(x - space / 2, band_y, cw + space, h, c.on_tap)
+        x = x + cw
+    end
+    if right then
+        local rw = right.widget:getSize().w
+        local gap = self.screen_w - self.gutter - rw - x
+        table.insert(row, W.hspan(math.max(space, gap)))
+        table.insert(row, right.widget)
+        self:zone(self.screen_w - self.gutter - rw - space / 2, band_y, rw + space / 2 + self.gutter, h, right.on_tap)
+    end
+    return LeftContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, row }
+end
+
+--- "‹  2 of 5  ›" with the arrows as the outer thirds; `middle` adds text
+--- after the count and makes the middle third a button.
+function NightstandScreen:pagerBand(h, band_y, middle, on_middle)
+    local third = math.floor(self.screen_w / 3)
+    local row = HorizontalGroup:new{ align = "center" }
+    local first, last = self.page <= 1, self.page >= self.pages
+    if self.pages > 1 then
+        table.insert(row, W.icon(first and "chevron-left-off" or "chevron-left", 16))
+        table.insert(row, W.hspan(Dim.px(22)))
+        table.insert(row, W.text(T(_("%1 of %2"), self.page, self.pages), W.REGULAR, 11.5, W.MUTED))
+        self:zone(0, band_y, third, h, function() self:turnPage(-1) end)
+        self:zone(2 * third, band_y, third, h, function() self:turnPage(1) end)
+    end
+    if middle then
+        table.insert(row, W.text((self.pages > 1 and "  ·  " or "") .. middle, W.REGULAR, 11.5, W.MUTED))
+        if on_middle then self:zone(third, band_y, third, h, on_middle) end
+    end
+    if self.pages > 1 then
+        table.insert(row, W.hspan(Dim.px(22)))
+        table.insert(row, W.icon(last and "chevron-right-off" or "chevron-right", 16))
+    end
+    return CenterContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, row }
 end
 
 --- A menu of options with the current one ticked (`mark` is added after it).

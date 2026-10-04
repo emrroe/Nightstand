@@ -36,7 +36,7 @@ local _ = require("gettext")
 local T = require("ffi/util").template
 
 local text, hspan, rule = W.text, W.hspan, W.rule
-local BLACK, GREY, SERIF = W.BLACK, W.GREY, W.SERIF
+local MUTED, BOLD, REGULAR = W.MUTED, W.BOLD, W.REGULAR
 
 local DiscoverScreen = NightstandScreen:extend{
     name = "nightstand_discover",
@@ -100,13 +100,13 @@ end
 
 function DiscoverScreen:build()
     local w, h = self.screen_w, self.screen_h
-    local title_h, chips_h, pager_h = Dim.px(46), Dim.px(36), Dim.px(26)
-    local tabs_h, tabs_margin = TabBar.height(), TabBar.margin()
+    local title_h, tabs_h, pager_h = Dim.px(42), Dim.px(34), Dim.px(30)
+    local tabs_bar_h, tabs_margin = TabBar.height(), TabBar.margin()
     local line = Size.line.thin
     local in_want = self.list == "want"
 
     self.entries = self:items()
-    local list_h = h - title_h - (in_want and 0 or chips_h) - line - pager_h - tabs_h - tabs_margin
+    local list_h = h - title_h - (in_want and line or tabs_h) - pager_h - tabs_bar_h - tabs_margin
     if self.view == "list" then
         self.plan = Rows.plan(w, list_h)
         self.per_page = self.plan.per_page
@@ -119,85 +119,75 @@ function DiscoverScreen:build()
 
     local stack = W.stack()
     stack:add(self:titleBand(title_h, stack.y), title_h)
-    if not in_want then stack:add(self:chipsBand(chips_h, stack.y), chips_h) end
-    stack:add(rule(w), line)
+    if in_want then
+        stack:add(rule(w), line)
+    else
+        stack:add(self:listTabs(tabs_h, stack.y), tabs_h)
+    end
     stack:add(self:listBand(list_h, stack.y), list_h)
-    stack:add(self:pagerBand(pager_h, stack.y), pager_h)
+    stack:add(self:pagerBand(pager_h, stack.y, self:updatedLabel(), function() self:fetchAgain() end), pager_h)
     stack:space(tabs_margin)
-    stack:add(self:tabsBand(tabs_h, stack.y), tabs_h)
+    stack:add(self:tabsBand(tabs_bar_h, stack.y), tabs_bar_h)
     self:setContent(stack.group)
     self:fetchPageCovers()
 end
 
+--- "Discover" with the view dropdown and the Want to read count on the
+--- right; inside Want to read, "‹ Want to read" and the way back.
 function DiscoverScreen:titleBand(h, band_y)
     local w = self.screen_w
-    local inner_w = w - 2 * self.gutter
     local data = Discover:load()
     local sep = Dim.px(18)
-    local view = NightstandScreen.control(nil, self:viewLabel(), "▾")
+    local view = W.dropdown(self:viewLabel())
     local right = HorizontalGroup:new{ align = "center", view }
     local view_w = view:getSize().w
     local left
     if self.list == "want" then
         left = HorizontalGroup:new{
             align = "center",
-            text("‹ " .. _("Discover"), "infont", 13, GREY),
-            hspan(self.gutter),
-            text(_("Want to read"), SERIF, 20),
+            W.icon("chevron-left", 20),
+            hspan(Dim.pad.small),
+            text(_("Want to read"), BOLD, 21),
         }
-        self:zone(0, band_y, w - self.gutter - view_w - sep, h,
-                  function() self:showList(self.previous or "recs") end)
     else
-        left = text(_("Discover"), SERIF, 20)
-        local want = W.chip(T(_("Want to read (%1)"), #(data and data.lists.want or {})), false)
-        local want_w = want:getSize().w
+        left = text(_("Discover"), BOLD, 21)
+        local want = HorizontalGroup:new{
+            align = "center",
+            W.icon("bookmark-on", 17),
+            hspan(Dim.pad.small),
+            text(tostring(#(data and data.lists.want or {})), BOLD, 12),
+        }
         table.insert(right, hspan(sep))
         table.insert(right, want)
-        self:zone(self.gutter + inner_w - want_w - sep / 2, band_y,
-                  want_w + sep / 2 + self.gutter, h, function() self:showList("want") end)
+        local want_w = want:getSize().w
+        self:zone(w - self.gutter - want_w - sep / 2, band_y, want_w + sep / 2 + self.gutter, h,
+                  function() self:showList("want") end)
     end
     local right_w = right:getSize().w
-    local view_x = self.gutter + inner_w - right_w - sep / 2
+    local view_x = w - self.gutter - right_w - sep / 2
     self:zone(view_x, band_y, math.min(view_w + sep, w - view_x), h, function() self:chooseView() end)
+    if self.list == "want" then
+        self:zone(0, band_y, view_x, h, function() self:showList(self.previous or "recs") end)
+    end
     return LeftContainer:new{
         dimen = Geom:new{ w = w, h = h },
         HorizontalGroup:new{
             align = "center",
             hspan(self.gutter),
-            LeftContainer:new{ dimen = Geom:new{ w = inner_w - right_w, h = h }, left },
+            LeftContainer:new{ dimen = Geom:new{ w = w - 2 * self.gutter - right_w, h = h }, left },
             right,
         },
     }
 end
 
-function DiscoverScreen:chipsBand(h, band_y)
-    local limit = self.screen_w - self.gutter
-    local strip = HorizontalGroup:new{ align = "center" }
-    local x = self.gutter
-    local space = Dim.px(6)
-    for index, spec in ipairs(self:availableLists()) do
-        if index > 1 then
-            table.insert(strip, hspan(space))
-            x = x + space
-        end
-        local active = self.list == spec.id
-        local chip = W.chip(spec.label, active)
-        -- a long "More like …" on a narrow screen: shorten it to what fits
-        local label = spec.label
-        while x + chip:getSize().w > limit and #label > 6 do
-            label = label:sub(1, #label - 4)
-            chip = W.chip(label .. "…", active)
-        end
-        local chip_w = chip:getSize().w
-        table.insert(strip, chip)
+function DiscoverScreen:listTabs(h, band_y)
+    local tabs = {}
+    for _index, spec in ipairs(self:availableLists()) do
         local id = spec.id
-        self:zone(x, band_y, chip_w, h, function() self:showList(id) end)
-        x = x + chip_w
+        table.insert(tabs, { label = spec.label, active = self.list == id,
+                             on_tap = function() self:showList(id) end })
     end
-    return LeftContainer:new{
-        dimen = Geom:new{ w = self.screen_w, h = h },
-        HorizontalGroup:new{ hspan(self.gutter), strip },
-    }
+    return self:tabRow(h, band_y, tabs)
 end
 
 function DiscoverScreen:listBand(h, band_y)
@@ -207,7 +197,7 @@ function DiscoverScreen:listBand(h, band_y)
              or _("Nothing here yet.")
         return CenterContainer:new{
             dimen = Geom:new{ w = self.screen_w, h = h },
-            TextBoxWidget:new{ text = message, face = Dim.face("cfont", 14), fgcolor = GREY,
+            TextBoxWidget:new{ text = message, face = Dim.face(REGULAR, 14), fgcolor = MUTED,
                                width = self.screen_w - 4 * self.gutter, alignment = "center" },
         }
     end
@@ -250,27 +240,11 @@ function DiscoverScreen:rowSpec(entry)
              author = entry.author, facts = facts, blurb = entry.summary }
 end
 
---- Page arrows either side; the middle refreshes from Hardcover.
-function DiscoverScreen:pagerBand(h, band_y)
-    local third = math.floor(self.screen_w / 3)
-    local label = self:updatedLabel()
-    if self.pages > 1 then
-        label = T(_("‹   %1 of %2   ›"), self.page, self.pages) .. "     " .. label
-        self:zone(0, band_y, third, h, function() self:turnPage(-1) end)
-        self:zone(2 * third, band_y, third, h, function() self:turnPage(1) end)
-    end
-    self:zone(third, band_y, third, h, function() self:fetchAgain() end)
-    return CenterContainer:new{
-        dimen = Geom:new{ w = self.screen_w, h = h },
-        text(label, "infont", 12, GREY),
-    }
-end
-
 function DiscoverScreen:updatedLabel()
     local data = Discover:load()
-    if not data or not data.fetched_at then return "↻" end
+    if not data or not data.fetched_at then return _("refresh") end
     local today = os.date("%Y%m%d") == os.date("%Y%m%d", data.fetched_at)
-    return T(_("updated %1 ↻"), os.date(today and "%H:%M" or "%d %b", data.fetched_at))
+    return T(_("updated %1"), os.date(today and "%H:%M" or "%d %b", data.fetched_at))
 end
 
 -- behaviour -------------------------------------------------------------------------

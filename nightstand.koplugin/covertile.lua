@@ -1,7 +1,7 @@
 --[[--
 A book cover at a given size, with its two corner marks: progress (or a tag
-the entry brings) top right, the download badge bottom right for books that
-are only on the server. Books without a cover get their title on a card.
+the entry brings) top right, a round download badge bottom right for books
+that are only on the server. Books without a cover get their title on a card.
 --]]--
 
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -16,12 +16,7 @@ local CoverCache = require("covercache")
 local Dim = require("dim")
 local W = require("widgets")
 local text = W.text
-local BLACK, WHITE, GREY, SERIF = W.BLACK, W.WHITE, W.GREY, W.SERIF
-
--- Resolved from this file so the plugin folder can live anywhere.
-local PLUGIN_DIR = debug.getinfo(1, "S").source:match("^@(.*)/[^/]+$")
-local CLOUD_ICON = PLUGIN_DIR .. "/resources/cloud-arrow-down.svg"
-local CLOUD_RATIO = (640 + 64) / (512 + 64)  -- viewBox, halo included
+local BLACK, WHITE, GREY, BOLD = W.BLACK, W.WHITE, W.GREY, W.BOLD
 
 local CoverTile = {}
 
@@ -37,7 +32,7 @@ local function placeholder(entry, w, h)
         if #word > #longest then longest = word end
     end
     while size > 8 do
-        local probe = W.text(longest, SERIF, size)
+        local probe = W.text(longest, BOLD, size)
         local fits = probe:getSize().w <= inner_w
         probe:free()
         if fits then break end
@@ -45,7 +40,7 @@ local function placeholder(entry, w, h)
     end
     local function title(cap)
         return TextBoxWidget:new{
-            text = entry.title, face = Dim.face(SERIF, size),
+            text = entry.title, face = Dim.face(BOLD, size),
             width = inner_w, alignment = "center",
             height = cap, height_overflow_show_ellipsis = cap ~= nil,
         }
@@ -93,26 +88,19 @@ function CoverTile.new(entry, w, h, opts)
             color = BLACK,
             bordersize = solid and 0 or Size.border.thin,
             padding = Dim.pad.tiny,
+            padding_left = Dim.pad.small + Dim.pad.tiny, padding_right = Dim.pad.small + Dim.pad.tiny,
             margin = 0,
-            radius = 0,
-            text(tag, "infont", 10, solid and WHITE or BLACK),
+            radius = Dim.px(3),
+            text(tag, BOLD, 9.5, solid and WHITE or BLACK),
         }
         badge.overlap_offset = { w - badge:getSize().w - pad, pad }
         table.insert(group, badge)
     end
 
     if not entry.on_device then
-        -- No backdrop: the icon carries its own white halo, drawn into the
-        -- SVG, so it stays readable over dark and light cover art alike.
-        local icon_h = math.max(Dim.px(10), math.floor(w * 0.10))
-        local badge = ImageWidget:new{
-            file = CLOUD_ICON,
-            width = math.floor(icon_h * CLOUD_RATIO), height = icon_h,
-            scale_factor = 0,  -- keep the icon's aspect
-            alpha = true,
-        }
-        local size = badge:getSize()
-        badge.overlap_offset = { w - size.w - pad, h - size.h - pad }
+        local size = math.min(Dim.px(22), math.max(Dim.px(15), math.floor(w * 0.2)))
+        local badge = W.icon("download", nil, size)
+        badge.overlap_offset = { w - size - pad, h - size - pad }
         table.insert(group, badge)
     end
 

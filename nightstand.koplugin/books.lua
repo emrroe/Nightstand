@@ -212,7 +212,8 @@ end
 --- The second value says which kind of tag it is, for styling.
 function Books:progressTag(entry)
     if entry.status == "complete" then return _("Finished"), "finished" end
-    if entry.status == "new" or not entry.percent then return _("New"), "new" end
+    -- opened and put back counts as not started
+    if not Books.started(entry) then return _("New"), "new" end
     return string.format("%d%%", math.floor(entry.percent * 100 + 0.5)), "progress"
 end
 
@@ -240,14 +241,18 @@ function Books:shelves(entries, skip, wanted)
     end
     local unfinished = function(e) return e.status ~= "complete" and not Books.started(e) end
 
+    -- `see_all`: the Library view that shows the whole of a shelf
     return {
-        { label = _("Continue"), books = continue },
+        { label = _("Continue"), books = continue,
+          see_all = { filter = "reading", sort = "recent", descending = true } },
         { label = _("Want to read"), books = wanted or {} },
         { label = _("Recently added"),
-          books = pick(function(e) return e.added ~= nil and unfinished(e) end, by_added) },
+          books = pick(function(e) return e.added ~= nil and unfinished(e) end, by_added),
+          see_all = { filter = "unread", sort = "added", descending = true } },
         { label = _("Ready on this device"),
           books = pick(function(e) return e.on_device and unfinished(e) and not shown[e] end,
-                       by_added) },
+                       by_added),
+          see_all = { filter = "device", sort = "added", descending = true } },
     }
 end
 
