@@ -531,6 +531,27 @@ end
 
 -- behaviour ----------------------------------------------------------------
 
+--- Back on the home screen leaves KOReader, the way it does from the file
+--- browser this screen stands in for, honouring "Back to exit".
+function HomeScreen:onClose()
+    local function quit()
+        UIManager:close(self)
+        local FileManager = require("apps/filemanager/filemanager")
+        if FileManager.instance then FileManager.instance:onClose() end
+    end
+    local back_to_exit = G_reader_settings:readSetting("back_to_exit", "prompt")
+    if back_to_exit == "always" then
+        quit()
+    elseif back_to_exit == "prompt" then
+        UIManager:show(require("ui/widget/confirmbox"):new{
+            text = _("Exit KOReader?"),
+            ok_text = _("Exit"),
+            ok_callback = quit,
+        })
+    end
+    return true
+end
+
 function HomeScreen:showBlurb(title, summary)
     UIManager:show(require("ui/widget/textviewer"):new{
         title = title,

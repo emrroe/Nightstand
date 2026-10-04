@@ -433,6 +433,32 @@ T.describe(SIZE .. " › opening a book", function()
     end)
 end)
 
+T.describe(SIZE .. " › back on the home screen", function()
+    T.it("asks before leaving KOReader, or leaves or stays as Back to exit says", function()
+        DATASETS["local files only"]()
+        local FileManager = require("apps/filemanager/filemanager")
+        local had, exited = FileManager.instance, 0
+        FileManager.instance = { onClose = function() exited = exited + 1 end }
+        local show, shown = UIManager.show, {}
+        UIManager.show = function(_, w) table.insert(shown, w) end
+        for _index, case in ipairs({ { "prompt", 0, 1 }, { "always", 1, 0 }, { "disable", 0, 0 } }) do
+            G_reader_settings:saveSetting("back_to_exit", case[1])
+            exited, shown = 0, {}
+            local home = require("homescreen"):new{ plugin = plugin() }
+            T.ok(home:onClose(), "Back is handled")
+            T.eq(exited, case[2], case[1] .. ": exits")
+            T.eq(#shown, case[3], case[1] .. ": asks")
+            if case[1] == "prompt" then
+                shown[1].ok_callback()
+                T.eq(exited, 1, "confirming exits")
+            end
+            home:onCloseWidget()
+        end
+        G_reader_settings:delSetting("back_to_exit")
+        UIManager.show, FileManager.instance = show, had
+    end)
+end)
+
 T.describe(SIZE .. " › first run", function()
     local function boot(online, routes)
         local NetworkMgr = require("ui/network/manager")
