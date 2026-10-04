@@ -117,7 +117,23 @@ end
 --- The shelves to stack under the hero; other screens built like this one
 --- (Discover) supply their own.
 function HomeScreen:shelfSource()
-    return Books:shelves(self.entries, self.current)
+    return Books:shelves(self.entries, self.current, self:wantedBooks())
+end
+
+--- Library books on the Hardcover Want to read list, not yet finished.
+function HomeScreen:wantedBooks()
+    local Discover = require("discover")
+    local data = require("hardcover"):isLinked() and Discover:load()
+    if not data then return nil end
+    local out = {}
+    for _index, id in ipairs(data.lists.want or {}) do
+        local book = data.books[id]
+        local entry = book and Discover.match(book, self.entries)
+        if entry and entry.status ~= "complete" and not Books.started(entry) then
+            table.insert(out, entry)
+        end
+    end
+    return out
 end
 
 --- The tab bar is chrome, not content: it keeps one height whatever the
@@ -196,7 +212,18 @@ function HomeScreen:heroCoverWidth(hero_h)
     return math.floor((hero_h - 2 * pad) / W.COVER_ASPECT)
 end
 
+function HomeScreen:shelfHeader(shelf)
+    return HorizontalGroup:new{
+        align = "bottom",
+        text(shelf.label:upper(), "infont", 11, GREY),
+        hspan(Dim.pad.default),
+        text(T("(%1)", shelf.total or #shelf.books), "infont", 10, GREY),
+    }
+end
+
 function HomeScreen:stripBand(shelf, h, band_y)
+    -- too few books to fill the row: wider cards that say more about each
+    if #shelf.books < self.strip_cols then return self:cardsBand(shelf, h, band_y) end
     local w = self.screen_w
     local gap = W.GAP
     local cover_w = self.strip_cover_w
@@ -204,12 +231,7 @@ function HomeScreen:stripBand(shelf, h, band_y)
     local cover_h = W.coverHeight(cover_w)
     local label_h = self:labelHeight()
 
-    local header = HorizontalGroup:new{
-        align = "bottom",
-        text(shelf.label:upper(), "infont", 11, GREY),
-        hspan(Dim.pad.default),
-        text(T("(%1)", shelf.total or #shelf.books), "infont", 10, GREY),
-    }
+    local header = self:shelfHeader(shelf)
 
     local row = HorizontalGroup:new{ align = "top" }
     local content_h = label_h + Dim.pad.default + cover_h
@@ -234,6 +256,93 @@ function HomeScreen:stripBand(shelf, h, band_y)
     table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
     table.insert(inner, row)
     return band(w, h, self.gutter, inner)
+end
+
+--- A shelf of a few books, each a cover with its title, author and where
+--- you are in it, sharing the row's width.
+function HomeScreen:cardsBand(shelf, h, band_y)
+    local gap = W.GAP
+    local n = #shelf.books
+    local cover_w = self.strip_cover_w
+    local cover_h = W.coverHeight(cover_w)
+    local label_h = self:labelHeight()
+    local area_w = self.screen_w - 2 * self.gutter
+    local card_w = math.floor((area_w - (n - 1) * gap) / n)
+    local text_w = card_w - cover_w - Dim.pad.large
+    local top = band_y + math.floor((h - (label_h + Dim.pad.default + cover_h)) / 2)
+
+    local row = HorizontalGroup:new{ align = "top" }
+    for index, entry in ipairs(shelf.books) do
+        if index > 1 then table.insert(row, hspan(gap)) end
+        local col = VerticalGroup:new{ align = "left" }
+        local room = cover_h
+        local function put(widget)
+            table.insert(col, widget)
+            room = room - widget:getSize().h
+        end
+        local function lines(face, size, most)
+            return math.min(most, math.floor(room / W.lineHeight(face, size)))
+        end
+        local title = TextBoxWidget:new{ text = entry.title, face = Dim.face(SERIF, 14), width = text_w }
+        local most = lines(SERIF, 14, 3)
+        if title:getSize().h > most * W.lineHeight(SERIF, 14) then
+            title:free()
+            title = TextBoxWidget:new{
+                text = entry.title, face = Dim.face(SERIF, 14), width = text_w,
+                height = most * W.lineHeight(SERIF, 14), height_overflow_show_ellipsis = true,
+            }
+        end
+        put(title)
+        if entry.author ~= "" and lines("cfont", 12, 1) > 0 then
+            put(text(entry.author, "cfont", 12, GREY, text_w))
+        end
+        local fact = self:cardFact(entry)
+        if fact and lines("infont", 11, 1) > 0 then
+            local most = lines("infont", 11, 2) * W.lineHeight("infont", 11)
+            local widget = TextBoxWidget:new{ text = fact, face = Dim.face("infont", 11), width = text_w }
+            if widget:getSize().h > most then
+                widget:free()
+                widget = TextBoxWidget:new{ text = fact, face = Dim.face("infont", 11), width = text_w,
+                                            height = most, height_overflow_show_ellipsis = true }
+            end
+            put(widget)
+        end
+        if n == 1 and entry.summary and lines("cfont", 12, 99) > 0 then
+            put(TextBoxWidget:new{
+                text = entry.summary, face = Dim.face("cfont", 12), fgcolor = GREY, width = text_w,
+                height = lines("cfont", 12, 99) * W.lineHeight("cfont", 12),
+                height_overflow_show_ellipsis = true,
+            })
+        end
+        table.insert(row, HorizontalGroup:new{
+            align = "top",
+            CoverTile.new(entry, cover_w, cover_h, { no_tag = true }),
+            hspan(Dim.pad.large),
+            col,
+        })
+        self:zone(self.gutter + (index - 1) * (card_w + gap), top + label_h + Dim.pad.default,
+                  card_w, cover_h,
+                  function() self:openBook(entry) end, function() self:holdBook(entry) end)
+        if index < n then table.insert(row, hspan(card_w - cover_w - Dim.pad.large - col:getSize().w)) end
+    end
+
+    local inner = VerticalGroup:new{ align = "left" }
+    table.insert(inner, self:shelfHeader(shelf))
+    table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
+    table.insert(inner, row)
+    return band(self.screen_w, h, self.gutter, inner)
+end
+
+--- Where you are in a card's book: how far, or which of its series it is.
+function HomeScreen:cardFact(entry)
+    if Books.started(entry) then
+        return T(_("%1% read"), math.floor(entry.percent * 100 + 0.5))
+    end
+    if entry.series and entry.series_index then
+        local n = entry.series_index
+        return T(_("Book %1 of %2"), n == math.floor(n) and string.format("%d", n) or n, entry.series)
+    end
+    return entry.status == "complete" and _("Finished") or nil
 end
 
 function HomeScreen:statusText()

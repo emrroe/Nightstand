@@ -241,12 +241,14 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
         T.it("library: every grouping, every group opened, every page turned", function()
             DATASETS[name]()
             local Library = require("library")
+            for _, view in ipairs({ "grid", "list" }) do
             for _, g in ipairs(Library.GROUPS) do
                 for _, f in ipairs(Library.FILTERS) do
+                    require("settings"):set("library_view", view)
                     require("settings"):set("library_group", g.id)
                     require("settings"):set("library_filter", f.id)
                     local lib = quiet(require("libraryscreen"):new{ plugin = plugin() })
-                    local what = "library " .. g.id .. "/" .. f.id
+                    local what = "library " .. view .. "/" .. g.id .. "/" .. f.id
                     paint(lib, what)
                     checkZones(lib, what)
                     for _ = 1, lib.pages + 1 do lib:turnPage(1); paint(lib, what .. " paged") end
@@ -265,16 +267,20 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
                     lib:free()
                 end
             end
+            end
         end)
 
         T.it("library: every tap survives", function()
             DATASETS[name]()
-            for _, g in ipairs({ "books", "series" }) do
-                require("settings"):set("library_group", g)
-                local lib = quiet(require("libraryscreen"):new{ plugin = plugin() })
-                paint(lib, "library")
-                tapAll(lib, "library " .. g)
-                lib:free()
+            for _, view in ipairs({ "grid", "list" }) do
+                for _, g in ipairs({ "books", "series" }) do
+                    require("settings"):set("library_view", view)
+                    require("settings"):set("library_group", g)
+                    local lib = quiet(require("libraryscreen"):new{ plugin = plugin() })
+                    paint(lib, "library")
+                    tapAll(lib, "library " .. view .. "/" .. g)
+                    lib:free()
+                end
             end
         end)
 
@@ -318,6 +324,13 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
             for _, spec in ipairs(screen:availableLists()) do
                 screen:showList(spec.id)
                 for _ = 1, screen.pages + 1 do screen:turnPage(1); paint(screen, "discover " .. spec.id) end
+            end
+            for _, view in ipairs({ "list", "grid" }) do
+                screen.view, screen.page = view, 1
+                screen:refresh()
+                paint(screen, "discover " .. view)
+                checkZones(screen, "discover " .. view)
+                tapAll(screen, "discover " .. view)
             end
             screen:showList("want")
             paint(screen, "discover want")

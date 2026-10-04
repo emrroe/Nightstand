@@ -45,7 +45,8 @@ function Books:entryFor(file, checksum)
         file = file,
         checksum = checksum,
         title = title,
-        author = props and props.authors or "",
+        -- KOReader keeps several authors one per line
+        author = props and props.authors and props.authors:gsub("%s*\n%s*", ", ") or "",
         pages = info and info.pages,
         percent = info and info.percent_finished,
         status = BookList.getBookStatus(file),
@@ -174,13 +175,18 @@ function Books:list(books_dir)
     return entries
 end
 
+--- Under way, as opposed to opened and put back on the first pages.
+function Books.started(entry)
+    return entry.status == "reading" and (entry.percent or 0) >= 0.01
+end
+
 --- The book the hero card shows, plus whether it is a suggestion rather
 --- than something already under way.
 function Books:current(entries)
     -- the book in progress you touched last, wherever you touched it
     local best
     for _index, entry in ipairs(entries) do
-        if entry.status == "reading" and entry.percent then
+        if Books.started(entry) then
             local at, best_at = entry.last_read or 0, best and best.last_read or 0
             if not best or at > best_at or (at == best_at and entry.percent > best.percent) then
                 best = entry
@@ -210,9 +216,11 @@ function Books:progressTag(entry)
     return string.format("%d%%", math.floor(entry.percent * 100 + 0.5)), "progress"
 end
 
---- Shelves for the stacked home layout. Only non-empty ones are drawn, so a
---- quiet library does not leave a labelled gap on screen.
-function Books:shelves(entries, skip)
+--- Shelves for the stacked home layout, most useful first. `wanted` are
+--- library books on the reader's Want to read list. Empty shelves are
+--- dropped by the caller.
+function Books:shelves(entries, skip, wanted)
+    local shown = {}
     local function pick(test, sort)
         local out = {}
         for _index, entry in ipairs(entries) do
@@ -222,21 +230,24 @@ function Books:shelves(entries, skip)
         return out
     end
     local by_added = function(a, b) return (a.added or "") > (b.added or "") end
-
     local by_read = function(a, b) return (a.last_read or 0) > (b.last_read or 0) end
 
+    -- books under way, then the next book of each series being read
+    local continue = pick(Books.started, by_read)
+    for _index, entry in ipairs(self:nextInSeries(entries, skip)) do
+        table.insert(continue, entry)
+        shown[entry] = true
+    end
+    local unfinished = function(e) return e.status ~= "complete" and not Books.started(e) end
+
     return {
-        { label = _("Reading now"),
-          books = pick(function(e) return e.status == "reading" end, by_read) },
-        { label = _("Next in series"), books = self:nextInSeries(entries, skip) },
+        { label = _("Continue"), books = continue },
+        { label = _("Want to read"), books = wanted or {} },
         { label = _("Recently added"),
-          books = pick(function(e) return e.added ~= nil end, by_added) },
-        { label = _("On this device"),
-          books = pick(function(e) return e.on_device end, by_added) },
-        { label = _("Not read yet"),
-          books = pick(function(e) return e.status == "new" end, by_added) },
-        { label = _("Finished"),
-          books = pick(function(e) return e.status == "complete" end, by_read) },
+          books = pick(function(e) return e.added ~= nil and unfinished(e) end, by_added) },
+        { label = _("Ready on this device"),
+          books = pick(function(e) return e.on_device and unfinished(e) and not shown[e] end,
+                       by_added) },
     }
 end
 
@@ -253,7 +264,7 @@ function Books:nextInSeries(entries, skip)
                 series[e.series] = s
             end
             table.insert(s.books, e)
-            if e.status == "complete" or e.status == "reading" then
+            if e.status == "complete" or Books.started(e) then
                 s.reached = math.max(s.reached or -math.huge, e.series_index)
                 s.activity = math.max(s.activity, e.last_read or 0)
             end
@@ -264,7 +275,7 @@ function Books:nextInSeries(entries, skip)
         if s.reached then
             local next_book
             for _index, e in ipairs(s.books) do
-                if e.series_index > s.reached and e.status ~= "complete" and e.status ~= "reading"
+                if e.series_index > s.reached and e.status ~= "complete" and not Books.started(e)
                    and (not next_book or e.series_index < next_book.series_index) then
                     next_book = e
                 end

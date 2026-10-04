@@ -220,6 +220,40 @@ T.describe("next in series", function()
     end)
 end)
 
+T.describe("home shelves", function()
+    T.it("a book opened but not read is not the one being read", function()
+        local Books = require("books")
+        local cur, fresh = Books:current({ { title = "peeked", status = "reading", percent = 0.002, last_read = 99 },
+                                          { title = "real", status = "reading", percent = 0.3, last_read = 1 } })
+        T.eq(cur.title, "real"); T.eq(fresh, false)
+        cur, fresh = Books:current({ { title = "peeked", status = "reading", percent = 0, added_rank = 1 } })
+        T.eq(fresh, true, "only peeked at: a suggestion, not progress")
+    end)
+    T.it("Continue holds books under way, then the next of each series", function()
+        local Books = require("books")
+        local hero = { title = "hero", status = "reading", percent = 0.5, last_read = 9 }
+        local list = { hero,
+                       { title = "other", status = "reading", percent = 0.2, last_read = 5 },
+                       { title = "peeked", status = "reading", percent = 0 },
+                       { title = "S1", series = "S", series_index = 1, status = "complete", last_read = 3 },
+                       { title = "S2", series = "S", series_index = 2, status = "new" } }
+        local shelves = Books:shelves(list, hero)
+        T.eq(shelves[1].label, "Continue")
+        T.eq(T.titles(shelves[1].books), { "other", "S2" })
+    end)
+    T.it("no shelf of finished books; want to read comes from the caller", function()
+        local Books = require("books")
+        local wanted = { title = "w", status = "new" }
+        local shelves = Books:shelves({ { title = "done", status = "complete", added = "2026" }, wanted },
+                                      nil, { wanted })
+        for _, shelf in ipairs(shelves) do
+            for _, book in ipairs(shelf.books) do T.ok(book.title ~= "done", shelf.label .. " shows a finished book") end
+        end
+        T.eq(shelves[2].label, "Want to read")
+        T.eq(T.titles(shelves[2].books), { "w" })
+    end)
+end)
+
 T.describe("over Wi-Fi only", function()
     T.it("blocks downloads on mobile data only when the setting is on", function()
         local Net = require("net")

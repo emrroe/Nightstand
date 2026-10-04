@@ -21,11 +21,44 @@ local function shoot(widget, name)
 end
 
 local plugin = setmetatable({}, { __index = function() return function() end end })
-shoot(require("homescreen"):new{ plugin = plugin }, "home")
-shoot(require("libraryscreen"):new{ plugin = plugin }, "library")
-shoot(require("settingsscreen"):new{ plugin = plugin }, "settings")
-if os.getenv("SNAP_DISCOVER") then
-    shoot(require("discoverscreen"):new{ plugin = plugin }, "discover")
+shoot(require("homescreen"):new{ plugin = plugin }, "1-home")
+
+local library = require("libraryscreen"):new{ plugin = plugin }
+shoot(library, "2-library")
+if library.pages > 1 then
+    library:turnPage(1)
+    shoot(library, "3-library-page2")
 end
+library.view, library.page = "list", 1
+library:refresh()
+shoot(library, "2b-library-list")
+library.view = "grid"
+library.group, library.page = "series", 1
+library:refresh()
+shoot(library, "4-library-series")
+if library.showing_groups and library.items[1] then
+    -- the largest series makes the more telling picture
+    local biggest = library.items[1]
+    for _, group in ipairs(library.items) do
+        if #group.books > #biggest.books then biggest = group end
+    end
+    library:activate(biggest)
+    shoot(library, "5-library-series-open")
+end
+
+if os.getenv("SNAP_DISCOVER") then
+    local discover = require("discoverscreen"):new{ plugin = plugin }
+    discover:showList("recs")
+    shoot(discover, "6-discover")
+    discover.view = discover.view == "list" and "grid" or "list"
+    discover:refresh()
+    shoot(discover, "6b-discover-" .. discover.view)
+    discover.view = "list"
+    discover:showList("top")
+    shoot(discover, "7-discover-top")
+    discover:showList("want")
+    shoot(discover, "8-discover-want")
+end
+shoot(require("settingsscreen"):new{ plugin = plugin }, "9-settings")
 print("snapshots written for " .. label)
 T.finish()

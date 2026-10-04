@@ -8,13 +8,18 @@ supply `load` (gather data) and `build` (lay out and register zones), and set
 `tab_id` to light up their tab.
 --]]--
 
+local ButtonDialog = require("ui/widget/buttondialog")
 local Device = require("device")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
+local HorizontalGroup = require("ui/widget/horizontalgroup")
 local InputContainer = require("ui/widget/container/inputcontainer")
 local UIManager = require("ui/uimanager")
+local Dim = require("dim")
+local Settings = require("settings")
 local TabBar = require("tabbar")
 local W = require("widgets")
+local _ = require("gettext")
 local Screen = Device.screen
 
 local NightstandScreen = InputContainer:extend{
@@ -86,7 +91,7 @@ function NightstandScreen:zone(x, y, w, h, on_tap, on_hold)
                                    tap = on_tap, hold = on_hold })
 end
 
-function NightstandScreen:onTap(_, ges)
+function NightstandScreen:onTap(_arg, ges)
     for _index, zone in ipairs(self.tap_zones) do
         if zone.tap and zone.rect:contains(ges.pos) then
             zone.tap()
@@ -96,7 +101,7 @@ function NightstandScreen:onTap(_, ges)
     return true
 end
 
-function NightstandScreen:onHold(_, ges)
+function NightstandScreen:onHold(_arg, ges)
     for _index, zone in ipairs(self.tap_zones) do
         if zone.hold and zone.rect:contains(ges.pos) then
             zone.hold()
@@ -106,7 +111,7 @@ function NightstandScreen:onHold(_, ges)
     return true
 end
 
-function NightstandScreen:onSwipe(_, ges)
+function NightstandScreen:onSwipe(_arg, ges)
     if not self.turnPage then return false end
     if ges.direction == "west" then
         self:turnPage(1)
@@ -122,6 +127,60 @@ end
 
 --- Long-press on a cover; only Discover does something with it.
 function NightstandScreen:holdBook(_entry) end
+
+--- A header control that opens a menu: grey label, value, and a mark.
+function NightstandScreen.control(label, value, mark)
+    local group = HorizontalGroup:new{ align = "center" }
+    if label then
+        table.insert(group, W.text(label, "infont", 11, W.GREY))
+        table.insert(group, W.hspan(Dim.pad.large))
+    end
+    table.insert(group, W.text(value .. " " .. mark, "infont", 12, W.BLACK))
+    return group
+end
+
+--- A menu of options with the current one ticked (`mark` is added after it).
+function NightstandScreen.menu(title, list, current, on_pick, mark)
+    local buttons = {}
+    local dialog
+    for _index, spec in ipairs(list) do
+        local label = spec.label
+        if spec.id == current then label = "✓  " .. label .. (mark or "") end
+        table.insert(buttons, {{
+            text = label,
+            align = "left",
+            callback = function()
+                UIManager:close(dialog)
+                on_pick(spec)
+            end,
+        }})
+    end
+    dialog = ButtonDialog:new{ title = title, title_align = "center", buttons = buttons }
+    UIManager:show(dialog)
+end
+
+NightstandScreen.VIEWS = {
+    { id = "grid", label = _("Grid") },
+    { id = "list", label = _("List") },
+}
+
+--- The grid/list choice, remembered under `self.view_setting`.
+function NightstandScreen:loadView()
+    self.view = Settings:get(self.view_setting) == "list" and "list" or "grid"
+end
+
+function NightstandScreen:chooseView()
+    NightstandScreen.menu(_("View"), NightstandScreen.VIEWS, self.view, function(spec)
+        if spec.id == self.view then return end
+        self.view, self.page = spec.id, 1
+        Settings:set(self.view_setting, spec.id)
+        self:refresh()
+    end)
+end
+
+function NightstandScreen:viewLabel()
+    return self.view == "list" and _("List") or _("Grid")
+end
 
 function NightstandScreen:tabsBand(h, band_y)
     return TabBar.build(self.screen_w, h, band_y, self.tab_id,

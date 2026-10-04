@@ -1,13 +1,12 @@
 --[[--
-The Library tab: every book, as a paged cover grid.
+The Library tab: every book, as a paged cover grid or list.
 
-Top to bottom: a title row carrying the "show" and "sort" controls, a row of
-filter chips, the grid, the pager and the tabs. "Show" swaps the books for
-author, series or genre tiles; tapping a tile opens that group. Filter, sort
-and grouping are remembered between visits.
+Top to bottom: a title row carrying the "view", "show" and "sort" controls, a
+row of filter chips, the books, the pager and the tabs. "Show" swaps the books
+for a list of authors, series or genres; tapping one opens it. View, filter,
+sort and grouping are remembered between visits.
 --]]--
 
-local ButtonDialog = require("ui/widget/buttondialog")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
@@ -18,8 +17,9 @@ local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Books = require("books")
-local CoverTile = require("covertile")
+local CoverGrid = require("covergrid")
 local NightstandScreen = require("screen")
+local Rows = require("rows")
 local Library = require("library")
 local Settings = require("settings")
 local TabBar = require("tabbar")
@@ -39,6 +39,7 @@ local LibraryScreen = NightstandScreen:extend{
     name = "nightstand_library",
     tab_id = "library",
     pageable = true,
+    view_setting = "library_view",
 }
 
 function LibraryScreen:load()
@@ -48,6 +49,7 @@ function LibraryScreen:load()
     self.group = Library.find(Library.GROUPS, Settings:get("library_group")).id
     local sort = Library.find(Library.SORTS, Settings:get("library_sort"))
     self.sort = sort.id
+    self:loadView()
     self.descending = Settings:get("library_descending")
     if self.descending == nil then self.descending = sort.desc or false end
 end
@@ -59,8 +61,10 @@ function LibraryScreen:recompute()
     self.groups = Library.groups(filtered, self.group, self.sort, self.descending)
 
     if self.groups and self.open_group then
+        -- an opened series shows all of it, whatever the filter
         self.items = {}
-        for _index, group in ipairs(self.groups) do
+        local all = Library.groups(self.entries, self.group, self.sort, self.descending)
+        for _index, group in ipairs(all) do
             if group.name == self.open_group then self.items = group.books end
         end
         self.showing_groups = false
@@ -72,54 +76,34 @@ function LibraryScreen:recompute()
         self.showing_groups = false
     end
 
-    self.grid_h = self.screen_h - self:titleHeight() - self:chipsHeight()
-                  - self:pagerHeight() - TabBar.height() - TabBar.margin()
-    self:planGrid(self.grid_h - Size.line.thin - Dim.px(10))
-    self.per_page = self.cols * self.rows
-    self.pages = math.max(1, math.ceil(#self.items / self.per_page))
+    -- the pager only takes room when there is more than one page
+    local above = self:titleHeight() + self:chipsHeight() + Size.line.thin
+    local below = TabBar.height() + TabBar.margin()
+    self.with_pager = false
+    self:planContent(self.screen_h - above - below)
+    if self.pages > 1 then
+        self.with_pager = true
+        self:planContent(self.screen_h - above - below - self:pagerHeight())
+    end
     if self.page > self.pages then self.page = self.pages end
 end
 
---- Rows and columns for the grid. For each row count the height sets the
---- largest cover; the width then fits either one column more (covers shrink
---- to meet both margins) or one fewer (covers keep their height, the row is
---- centred). The plan showing the most books wins, as long as covers stay at
---- a legible physical size; leftover height is shared between the rows.
---- The two caption lines under a grid cover: serif title, mono author.
-function LibraryScreen:captionHeight()
-    return W.lineHeight(SERIF, 12) + W.lineHeight("infont", 10)
+--- Groups are always a list -- a series is its name, not its first cover.
+function LibraryScreen:listing()
+    return self.showing_groups or self.view == "list"
 end
 
---- Rows and columns for the grid. The width sets the columns -- covers about
---- 21 mm wide, never fewer than four across -- and the height then takes as
---- many rows as fit, sharing what is left between them.
-function LibraryScreen:planGrid(grid_h)
-    local area_w = self.screen_w - 2 * self.gutter
-    local gap = W.GAP
-    local min_gap = Dim.px(10)
-    local caption_h = self:captionHeight()
-    local cols = math.max(4, math.floor((area_w + gap) / (Dim.px(100) + gap) + 0.5))
-    local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
-    local cell_h = W.coverHeight(cover_w) + caption_h
-    local rows = math.max(1, math.floor((grid_h + min_gap) / (cell_h + min_gap)))
-    -- One more row is worth slightly narrower covers (centred, with a margin)
-    -- rather than a band of empty space; and on a very short screen the one
-    -- row has to shrink to fit at all.
-    local function widthFor(n)
-        return math.floor(((grid_h - (n - 1) * min_gap) / n - caption_h) / W.COVER_ASPECT)
+function LibraryScreen:planContent(h)
+    self.content_h = h
+    if self:listing() then
+        self.plan = Rows.plan(self.screen_w, h)
+    else
+        local gap = W.GAP
+        self.plan = CoverGrid.plan(self.screen_w - 2 * self.gutter, h - 2 * gap, #self.items)
+        self.plan.top = gap
     end
-    if widthFor(rows + 1) >= 0.8 * cover_w then
-        rows = rows + 1
-        cover_w = widthFor(rows)
-    elseif rows * cell_h + (rows - 1) * min_gap > grid_h then
-        cover_w = widthFor(rows)
-    end
-    cell_h = W.coverHeight(cover_w) + caption_h
-    self.rows, self.cols, self.cover_w, self.gap = rows, cols, cover_w, gap
-    local row_w = cols * cover_w + (cols - 1) * gap
-    self.grid_x = self.gutter + math.floor((area_w - row_w) / 2)
-    local slack = math.max(0, grid_h - rows * cell_h - (rows - 1) * min_gap)
-    self.row_gap = min_gap + (rows > 1 and math.floor(slack / (rows - 1)) or 0)
+    self.per_page = self.plan.per_page or self.plan.cols * self.plan.rows
+    self.pages = math.max(1, math.ceil(#self.items / self.per_page))
 end
 
 function LibraryScreen:titleHeight() return Dim.px(46) end
@@ -130,82 +114,75 @@ function LibraryScreen:pagerHeight() return Dim.px(26) end
 
 function LibraryScreen:build()
     self:recompute()
-    local w, h = self.screen_w, self.screen_h
-    local y = 0
-    local stack = VerticalGroup:new{ align = "left" }
-    local function add(widget, height)
-        table.insert(stack, widget)
-        y = y + height
+    local stack = W.stack()
+    stack:add(self:titleBand(self:titleHeight(), stack.y), self:titleHeight())
+    stack:add(self:chipsBand(self:chipsHeight(), stack.y), self:chipsHeight())
+    stack:add(rule(self.screen_w), Size.line.thin)
+    stack:add(self:content(self.content_h, stack.y), self.content_h)
+    if self.with_pager then
+        stack:add(self:pagerBand(self:pagerHeight(), stack.y), self:pagerHeight())
     end
-
-    add(self:titleBand(self:titleHeight(), y), self:titleHeight())
-    add(self:chipsBand(self:chipsHeight(), y), self:chipsHeight())
-    local top_gap = Dim.px(10)
-    add(rule(w), Size.line.thin)
-    add(VerticalSpan:new{ width = top_gap }, top_gap)
-
-    local grid_h = self.grid_h - Size.line.thin - top_gap
-    add(self:libraryGrid(grid_h, y), grid_h)
-    add(self:pagerBand(self:pagerHeight(), y), self:pagerHeight())
-
-    add(VerticalSpan:new{ width = TabBar.margin() }, TabBar.margin())
-    add(self:tabsBand(TabBar.height(), y), TabBar.height())
-
-    self:setContent(stack)
-end
-
---- A control that opens a menu: label, value, and a mark saying what it does.
-function LibraryScreen:control(label, value, mark)
-    local group = HorizontalGroup:new{ align = "center" }
-    if label then
-        table.insert(group, text(label, "infont", 11, GREY))
-        table.insert(group, hspan(Dim.pad.large))
-    end
-    table.insert(group, text(value .. " " .. mark, "infont", 12, BLACK))
-    return group
+    stack:space(TabBar.margin())
+    stack:add(self:tabsBand(TabBar.height(), stack.y), TabBar.height())
+    self:setContent(stack.group)
 end
 
 function LibraryScreen:titleBand(h, band_y)
     local w = self.screen_w
     local inner_w = w - 2 * self.gutter
+    local control = NightstandScreen.control
 
     local sort = Library.find(Library.SORTS, self.sort)
     local show = Library.find(Library.GROUPS, self.group)
     local arrow = self.descending and "↓" or "↑"
-    local sep = Dim.px(20)
+    local sep = Dim.px(18)
     local title_w = W.text(_("Library"), SERIF, 20):getSize().w
 
     -- On a narrow screen the header gives way in steps: first the count, then
-    -- the grey "Show"/"Sort" words, then the long sort name.
+    -- the grey "View"/"Show"/"Sort" words, then the long sort name.
     local steps = {
         { count = true, labels = true, short = false },
         { count = false, labels = true, short = false },
         { count = false, labels = false, short = false },
         { count = false, labels = false, short = true },
     }
-    local fit, sort_c, show_c, count_w
+    local fit, controls
     for _index, step in ipairs(steps) do
         fit = step
         local sort_label = step.short and (sort.short or sort.label) or sort.label
-        sort_c = self:control(step.labels and _("Sort") or nil, sort_label, arrow)
-        show_c = self:control(step.labels and _("Show") or nil, show.label, "▾")
-        count_w = step.count and (Dim.pad.large + W.text(self:countLabel(), "infont", 12):getSize().w) or 0
-        local need = title_w + count_w + sep + show_c:getSize().w + sep + sort_c:getSize().w
+        controls = {
+            { widget = control(step.labels and _("View") or nil, self:viewLabel(), "▾"),
+              pick = function() self:chooseView() end },
+            { widget = control(step.labels and _("Sort") or nil, sort_label, arrow),
+              pick = function() self:chooseSort() end },
+        }
+        if not self.open_group then
+            table.insert(controls, 2, {
+                widget = control(step.labels and _("Show") or nil, show.label, "▾"),
+                pick = function() self:chooseGroup() end })
+        end
+        local need = title_w
+        if step.count then
+            need = need + Dim.pad.large + W.text(self:countLabel(), "infont", 12):getSize().w
+        end
+        for _index2, c in ipairs(controls) do need = need + sep + c.widget:getSize().w end
         if need <= inner_w then break end
     end
-    local sort_w, show_w = sort_c:getSize().w, show_c:getSize().w
-    local right_w = show_w + sep + sort_w
+    local right = HorizontalGroup:new{ align = "center" }
+    local right_w = 0
+    for index, c in ipairs(controls) do
+        if index > 1 then
+            table.insert(right, hspan(sep))
+            right_w = right_w + sep
+        end
+        table.insert(right, c.widget)
+        c.x = right_w
+        right_w = right_w + c.widget:getSize().w
+    end
 
     local left
     if self.open_group then
-        local back = text("‹ " .. show.label, "infont", 13, GREY)
-        local room = math.max(Dim.px(40), inner_w - right_w - sep - back:getSize().w - self.gutter)
-        left = HorizontalGroup:new{
-            align = "center",
-            back,
-            hspan(self.gutter),
-            text(self.open_group, SERIF, 20, BLACK, room),
-        }
+        left = text("‹ " .. show.label, SERIF, 20, GREY)
     else
         left = HorizontalGroup:new{ align = "center", text(_("Library"), SERIF, 20) }
         if fit.count then
@@ -215,12 +192,14 @@ function LibraryScreen:titleBand(h, band_y)
     end
 
     -- generous tap targets: the full band height, plus half the gap either side
-    local x = self.gutter + inner_w - right_w
-    self:zone(x - sep / 2, band_y, show_w + sep, h, function() self:chooseGroup() end)
-    self:zone(x + show_w + sep / 2, band_y, sort_w + sep / 2 + self.gutter, h,
-              function() self:chooseSort() end)
+    local x0 = self.gutter + inner_w - right_w
+    for index, c in ipairs(controls) do
+        local cw = c.widget:getSize().w
+        local extra = index == #controls and self.gutter or sep / 2
+        self:zone(x0 + c.x - sep / 2, band_y, cw + sep / 2 + extra, h, c.pick)
+    end
     if self.open_group then
-        self:zone(0, band_y, x - sep, h, function() self:closeGroup() end)
+        self:zone(0, band_y, x0 - sep, h, function() self:closeGroup() end)
     end
 
     return LeftContainer:new{
@@ -229,7 +208,7 @@ function LibraryScreen:titleBand(h, band_y)
             align = "center",
             hspan(self.gutter),
             LeftContainer:new{ dimen = Geom:new{ w = inner_w - right_w, h = h }, left },
-            show_c, hspan(sep), sort_c,
+            right,
         },
     }
 end
@@ -243,6 +222,7 @@ function LibraryScreen:countLabel()
 end
 
 function LibraryScreen:chipsBand(h, band_y)
+    if self.open_group then return self:groupNameBand(h, band_y) end
     local strip = HorizontalGroup:new{ align = "center" }
     local x = self.gutter
     local space = Dim.px(6)
@@ -264,66 +244,84 @@ function LibraryScreen:chipsBand(h, band_y)
     }
 end
 
-function LibraryScreen:libraryGrid(h, band_y)
+--- In place of the filters while a group is open: its name and size.
+function LibraryScreen:groupNameBand(h, band_y)
+    local inner_w = self.screen_w - 2 * self.gutter
+    local count = text(bookCount(#self.items), "infont", 12, GREY)
+    local name_w = inner_w - count:getSize().w - Dim.pad.large
+    self:zone(0, band_y, self.screen_w, h, function() self:closeGroup() end)
+    return LeftContainer:new{
+        dimen = Geom:new{ w = self.screen_w, h = h },
+        HorizontalGroup:new{
+            align = "center",
+            hspan(self.gutter),
+            text(self.open_group, SERIF, 17, BLACK, name_w),
+            hspan(Dim.pad.large),
+            count,
+        },
+    }
+end
+
+function LibraryScreen:content(h, band_y)
     if #self.items == 0 then
         return CenterContainer:new{
             dimen = Geom:new{ w = self.screen_w, h = h },
             text(_("Nothing matches this filter."), "cfont", 15, GREY),
         }
     end
-
-    local caption_h = self:captionHeight()
-    local cover_w, gap = self.cover_w, self.gap
-    local cover_h = W.coverHeight(cover_w)
-    local cell_h = cover_h + caption_h
-    local grid = VerticalGroup:new{ align = "left" }
     local first = (self.page - 1) * self.per_page + 1
-
-    for row = 1, self.rows do
-        local line = HorizontalGroup:new{ align = "top" }
-        for col = 1, self.cols do
-            local item = self.items[first + (row - 1) * self.cols + (col - 1)]
-            if col > 1 then table.insert(line, hspan(gap)) end
-            if item then
-                table.insert(line, self:cell(item, cover_w, cover_h))
-                local x = self.grid_x + (col - 1) * (cover_w + gap)
-                local cy = band_y + (row - 1) * (cell_h + self.row_gap)
-                self:zone(x, cy, cover_w, cell_h, function() self:activate(item) end)
-            else
-                table.insert(line, hspan(cover_w))
-            end
-        end
-        table.insert(grid, line)
-        if row < self.rows then
-            table.insert(grid, VerticalSpan:new{ width = self.row_gap })
-        end
+    local zone = function(...) self:zone(...) end
+    local tap = function(item) self:activate(item) end
+    local body
+    if self:listing() then
+        body = Rows.page(self.items, first, self.plan, self.screen_w, band_y, zone, tap, nil,
+                         function(item, w, rh) return Rows.row(self:rowSpec(item), w, rh, self.gutter) end)
+    else
+        body = HorizontalGroup:new{
+            hspan(self.gutter),
+            CoverGrid.page(self.items, first, self.plan, self.screen_w - 2 * self.gutter,
+                           band_y + self.plan.top,
+                           function(x, ...) self:zone(x + self.gutter, ...) end, tap),
+        }
+        body = VerticalGroup:new{ align = "left", VerticalSpan:new{ width = self.plan.top }, body }
     end
-
-    -- top-aligned, so a short last page doesn't float in the middle
-    return TopContainer:new{
-        dimen = Geom:new{ w = self.screen_w, h = h },
-        HorizontalGroup:new{ align = "top", hspan(self.grid_x), grid },
-    }
+    return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, body }
 end
 
-function LibraryScreen:cell(item, cover_w, cover_h)
-    local cell = VerticalGroup:new{ align = "left" }
+local function seriesNumber(n)
+    return n == math.floor(n) and string.format("%d", n) or tostring(n)
+end
+
+--- What a list row says about a book, or about a series, author or genre.
+function LibraryScreen:rowSpec(item)
     if self.showing_groups then
-        -- a group shows its first book's cover; for a series that is book one
-        table.insert(cell, CoverTile.new(item.books[1], cover_w, cover_h, { no_tag = true }))
-        table.insert(cell, text(item.name, SERIF, 12, BLACK, cover_w))
-        table.insert(cell, text(bookCount(#item.books), "infont", 10, GREY, cover_w))
-    else
-        table.insert(cell, CoverTile.new(item, cover_w, cover_h))
-        table.insert(cell, text(item.title, SERIF, 12, BLACK, cover_w))
-        local second = item.author ~= "" and item.author or Books:progressTag(item)
-        if self.open_group and self.group == "series" and item.series_index then
-            local n = item.series_index
-            second = T(_("Book %1"), n == math.floor(n) and string.format("%d", n) or tostring(n))
+        local read, reading, titles = 0, 0, {}
+        for _index, book in ipairs(item.books) do
+            if book.status == "complete" then read = read + 1 end
+            if book.status == "reading" then reading = reading + 1 end
+            table.insert(titles, book.title)
         end
-        table.insert(cell, text(second, "infont", 10, GREY, cover_w))
+        local facts = { bookCount(#item.books) }
+        if reading > 0 then table.insert(facts, T(_("%1 reading"), reading)) end
+        if read > 0 then table.insert(facts, T(_("%1 finished"), read)) end
+        return { cover = item.books[1], cover_opts = { no_tag = true }, title = item.name,
+                 facts = facts, blurb = table.concat(titles, "  ·  ") }
     end
-    return cell
+    local facts = {}
+    if item.series and item.series_index then
+        if self.open_group and self.group == "series" then
+            table.insert(facts, T(_("Book %1"), seriesNumber(item.series_index)))
+        else
+            table.insert(facts, T(_("%1, book %2"), item.series, seriesNumber(item.series_index)))
+        end
+    end
+    local tag, kind = Books:progressTag(item)
+    if kind ~= "new" then table.insert(facts, tag) end
+    local year = type(item.published) == "string" and item.published:match("^(%d%d%d%d)")
+    if year then table.insert(facts, year) end
+    if not item.on_device then table.insert(facts, _("not downloaded")) end
+    return { cover = item, cover_opts = { no_tag = true }, title = item.title,
+             author = item.author, facts = facts, blurb = item.summary }
 end
 
 function LibraryScreen:pagerBand(h, band_y)
@@ -374,29 +372,10 @@ function LibraryScreen:setFilter(id)
     self:refresh()
 end
 
---- A menu of options; picking the active sort again flips its direction.
-function LibraryScreen:menu(title, list, current, on_pick, mark)
-    local buttons = {}
-    local dialog
-    for _index, spec in ipairs(list) do
-        local label = spec.label
-        if spec.id == current then label = "✓  " .. label .. (mark or "") end
-        table.insert(buttons, {{
-            text = label,
-            align = "left",
-            callback = function()
-                UIManager:close(dialog)
-                on_pick(spec)
-            end,
-        }})
-    end
-    dialog = ButtonDialog:new{ title = title, title_align = "center", buttons = buttons }
-    UIManager:show(dialog)
-end
-
 function LibraryScreen:chooseSort()
     local mark = self.descending and "   ↓" or "   ↑"
-    self:menu(_("Sort by"), Library.SORTS, self.sort, function(spec)
+    -- picking the active sort again flips its direction
+    NightstandScreen.menu(_("Sort by"), Library.SORTS, self.sort, function(spec)
         if spec.id == self.sort then
             self.descending = not self.descending
         else
@@ -410,7 +389,7 @@ function LibraryScreen:chooseSort()
 end
 
 function LibraryScreen:chooseGroup()
-    self:menu(_("Show"), Library.GROUPS, self.group, function(spec)
+    NightstandScreen.menu(_("Show"), Library.GROUPS, self.group, function(spec)
         if spec.id == self.group and not self.open_group then return end
         self.group, self.open_group, self.page = spec.id, nil, 1
         Settings:set("library_group", spec.id)

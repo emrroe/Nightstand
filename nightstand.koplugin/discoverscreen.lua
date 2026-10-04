@@ -1,10 +1,10 @@
 --[[--
-The Discover tab: Hardcover's recommendations as a paged list.
+The Discover tab: Hardcover's recommendations as a paged grid or list.
 
 A chip row picks the list (For you, Top picks, More like the current book);
-the Want to read list sits behind its own button in the header. Each row is a
-small cover with title, author, rating, year, length and the start of the
-description. Tapping a row opens the details sheet; long-press goes straight
+the Want to read list sits behind its own button in the header. A list row is
+a small cover with title, author, rating, year, length and the start of the
+description. Tapping a book opens the details sheet; long-press goes straight
 to the reader's chosen shop or library. Covers for the page being shown are
 fetched in the background.
 --]]--
@@ -18,14 +18,16 @@ local TextBoxWidget = require("ui/widget/textboxwidget")
 local TopContainer = require("ui/widget/container/topcontainer")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
+local VerticalSpan = require("ui/widget/verticalspan")
 local Background = require("background")
 local BookActions = require("bookactions")
 local Books = require("books")
-local CoverTile = require("covertile")
+local CoverGrid = require("covergrid")
 local Dim = require("dim")
 local Discover = require("discover")
 local Hardcover = require("hardcover")
 local NightstandScreen = require("screen")
+local Rows = require("rows")
 local Settings = require("settings")
 local TabBar = require("tabbar")
 local Vendors = require("vendors")
@@ -40,6 +42,7 @@ local DiscoverScreen = NightstandScreen:extend{
     name = "nightstand_discover",
     tab_id = "discover",
     pageable = true,
+    view_setting = "discover_view",
 }
 
 -- the lists a chip can show; Want to read has its own button instead
@@ -52,6 +55,7 @@ local LISTS = {
 function DiscoverScreen:load()
     self.page = self.page or 1
     self.list = self.list or Settings:get("discover_list") or "recs"
+    self:loadView()
     self.library = Books:list(Settings:booksDir())
 end
 
@@ -102,14 +106,14 @@ function DiscoverScreen:build()
     local in_want = self.list == "want"
 
     self.entries = self:items()
-    self.row_h = W.coverHeight(self:coverWidth()) + 2 * Dim.pad.large
     local list_h = h - title_h - (in_want and 0 or chips_h) - line - pager_h - tabs_h - tabs_margin
-    -- landscape has room for two columns of rows side by side
-    self.columns = w > h and 2 or 1
-    self.rows = math.max(1, math.floor(list_h / self.row_h))
-    self.per_page = self.rows * self.columns
-    -- rows share the leftover height, which goes to longer descriptions
-    self.row_h = math.floor(list_h / self.rows)
+    if self.view == "list" then
+        self.plan = Rows.plan(w, list_h)
+        self.per_page = self.plan.per_page
+    else
+        self.plan = CoverGrid.plan(w - 2 * self.gutter, list_h - 2 * W.GAP, #self.entries)
+        self.per_page = self.plan.cols * self.plan.rows
+    end
     self.pages = math.max(1, math.ceil(#self.entries / self.per_page))
     if self.page > self.pages then self.page = self.pages end
 
@@ -125,15 +129,15 @@ function DiscoverScreen:build()
     self:fetchPageCovers()
 end
 
-function DiscoverScreen:coverWidth()
-    return Dim.px(72)
-end
-
 function DiscoverScreen:titleBand(h, band_y)
     local w = self.screen_w
     local inner_w = w - 2 * self.gutter
     local data = Discover:load()
-    local left, right
+    local sep = Dim.px(18)
+    local view = NightstandScreen.control(nil, self:viewLabel(), "▾")
+    local right = HorizontalGroup:new{ align = "center", view }
+    local view_w = view:getSize().w
+    local left
     if self.list == "want" then
         left = HorizontalGroup:new{
             align = "center",
@@ -141,22 +145,29 @@ function DiscoverScreen:titleBand(h, band_y)
             hspan(self.gutter),
             text(_("Want to read"), SERIF, 20),
         }
-        self:zone(0, band_y, w, h, function() self:showList(self.previous or "recs") end)
+        self:zone(0, band_y, w - self.gutter - view_w - sep, h,
+                  function() self:showList(self.previous or "recs") end)
     else
         left = text(_("Discover"), SERIF, 20)
-        right = W.chip(T(_("Want to read (%1)"), #(data and data.lists.want or {})), false)
-        local right_w = right:getSize().w
-        self:zone(self.gutter + inner_w - right_w - Dim.pad.large, band_y,
-                  right_w + Dim.pad.large + self.gutter, h, function() self:showList("want") end)
+        local want = W.chip(T(_("Want to read (%1)"), #(data and data.lists.want or {})), false)
+        local want_w = want:getSize().w
+        table.insert(right, hspan(sep))
+        table.insert(right, want)
+        self:zone(self.gutter + inner_w - want_w - sep / 2, band_y,
+                  want_w + sep / 2 + self.gutter, h, function() self:showList("want") end)
     end
-    local right_w = right and right:getSize().w or 0
-    local row = HorizontalGroup:new{
-        align = "center",
-        hspan(self.gutter),
-        LeftContainer:new{ dimen = Geom:new{ w = inner_w - right_w, h = h }, left },
+    local right_w = right:getSize().w
+    local view_x = self.gutter + inner_w - right_w - sep / 2
+    self:zone(view_x, band_y, math.min(view_w + sep, w - view_x), h, function() self:chooseView() end)
+    return LeftContainer:new{
+        dimen = Geom:new{ w = w, h = h },
+        HorizontalGroup:new{
+            align = "center",
+            hspan(self.gutter),
+            LeftContainer:new{ dimen = Geom:new{ w = inner_w - right_w, h = h }, left },
+            right,
+        },
     }
-    if right then table.insert(row, right) end
-    return LeftContainer:new{ dimen = Geom:new{ w = w, h = h }, row }
 end
 
 function DiscoverScreen:chipsBand(h, band_y)
@@ -200,38 +211,32 @@ function DiscoverScreen:listBand(h, band_y)
                                width = self.screen_w - 4 * self.gutter, alignment = "center" },
         }
     end
-    local col_w = math.floor(self.screen_w / self.columns)
-    local columns = HorizontalGroup:new{ align = "top" }
     local first = (self.page - 1) * self.per_page + 1
-    for c = 1, self.columns do
-        local column = VerticalGroup:new{ align = "left" }
-        local x = (c - 1) * col_w
-        for r = 1, self.rows do
-            local entry = self.entries[first + (c - 1) * self.rows + r - 1]
-            if not entry then break end
-            table.insert(column, self:row(entry, self.row_h, col_w))
-            self:zone(x, band_y + (r - 1) * self.row_h, col_w, self.row_h,
-                      function() self:openBook(entry) end, function() self:holdBook(entry) end)
-        end
-        table.insert(columns, column)
+    local tap = function(entry) self:openBook(entry) end
+    local hold = function(entry) self:holdBook(entry) end
+    local body
+    if self.view == "list" then
+        body = Rows.page(self.entries, first, self.plan, self.screen_w, band_y,
+                         function(...) self:zone(...) end, tap, hold,
+                         function(entry, w, rh) return Rows.row(self:rowSpec(entry), w, rh, self.gutter) end)
+    else
+        body = VerticalGroup:new{
+            align = "left",
+            VerticalSpan:new{ width = W.GAP },
+            HorizontalGroup:new{
+                hspan(self.gutter),
+                CoverGrid.page(self.entries, first, self.plan, self.screen_w - 2 * self.gutter,
+                               band_y + W.GAP, function(x, ...) self:zone(x + self.gutter, ...) end,
+                               tap, hold),
+            },
+        }
     end
-    return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, columns }
+    return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, body }
 end
 
---- One book: its cover, then title, author, the facts line, and as much of
---- the description as fits beside the cover.
-function DiscoverScreen:row(entry, h, w)
-    local cover_w = self:coverWidth()
-    local cover_h = W.coverHeight(cover_w)
-    local text_w = w - 2 * self.gutter - cover_w - self.gutter
-    local col = VerticalGroup:new{ align = "left" }
-    local used = 0
-    local function put(widget)
-        table.insert(col, widget)
-        used = used + widget:getSize().h
-    end
-    put(text(entry.title, SERIF, 15, BLACK, text_w))
-    if entry.author ~= "" then put(text(entry.author, "cfont", 12, GREY, text_w)) end
+--- What a list row says about a book: rating, year, length, and whether the
+--- library already has it.
+function DiscoverScreen:rowSpec(entry)
     local facts = {}
     if entry.rating then table.insert(facts, string.format("★ %.1f", entry.rating)) end
     if entry.year then table.insert(facts, tostring(entry.year)) end
@@ -241,31 +246,8 @@ function DiscoverScreen:row(entry, h, w)
     elseif entry.wanted and self.list ~= "want" then
         table.insert(facts, _("want to read"))
     end
-    if #facts > 0 then put(text(table.concat(facts, "  ·  "), "infont", 11, BLACK, text_w)) end
-    local line_h = W.lineHeight("cfont", 12)
-    local room = h - 2 * Dim.pad.large - Size.line.thin - used
-    if entry.summary and room >= line_h then
-        put(TextBoxWidget:new{
-            text = entry.summary, face = Dim.face("cfont", 12), fgcolor = GREY, width = text_w,
-            height = math.floor(room / line_h) * line_h, height_overflow_show_ellipsis = true,
-        })
-    end
-
-    local line = Size.line.thin
-    return VerticalGroup:new{
-        align = "left",
-        LeftContainer:new{
-            dimen = Geom:new{ w = w, h = h - line },
-            HorizontalGroup:new{
-                align = "top",
-                hspan(self.gutter),
-                CoverTile.new(entry, cover_w, cover_h, { no_tag = true }),
-                hspan(self.gutter),
-                col,
-            },
-        },
-        rule(w),
-    }
+    return { cover = entry, cover_opts = { no_tag = true }, title = entry.title,
+             author = entry.author, facts = facts, blurb = entry.summary }
 end
 
 --- Page arrows either side; the middle refreshes from Hardcover.

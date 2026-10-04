@@ -30,9 +30,22 @@ local function placeholder(entry, w, h)
     local pad = Dim.pad.small
     local inner_w = w - 2 * border - 2 * pad
     local inner_h = h - 2 * border - 2 * pad
+    -- small enough that no word of the title has to break
+    local size = 13
+    local longest = ""
+    for word in entry.title:gmatch("%S+") do
+        if #word > #longest then longest = word end
+    end
+    while size > 8 do
+        local probe = W.text(longest, SERIF, size)
+        local fits = probe:getSize().w <= inner_w
+        probe:free()
+        if fits then break end
+        size = size - 1
+    end
     local function title(cap)
         return TextBoxWidget:new{
-            text = entry.title, face = Dim.face(SERIF, 13),
+            text = entry.title, face = Dim.face(SERIF, size),
             width = inner_w, alignment = "center",
             height = cap, height_overflow_show_ellipsis = cap ~= nil,
         }

@@ -75,6 +75,21 @@ local function roundCorners(bb, radius)
     return bb
 end
 
+--- Scales a cover to exactly `w` x `h`, cropping the middle out of a cover
+--- shaped differently rather than squashing it.
+local function fill(bb, w, h)
+    local sw, sh = bb:getWidth(), bb:getHeight()
+    local cw, ch = sw, math.floor(sw * h / w + 0.5)
+    if ch > sh then cw, ch = math.floor(sh * w / h + 0.5), sh end
+    if cw < sw or ch < sh then
+        local crop = Blitbuffer.new(cw, ch, bb:getType())
+        crop:blitFrom(bb, 0, 0, math.floor((sw - cw) / 2), math.floor((sh - ch) / 2), cw, ch)
+        bb:free()
+        bb = crop
+    end
+    return RenderImage:scaleBlitBuffer(bb, w, h, true)
+end
+
 local function scaled(key, cache, loader, width, height)
     local slot = string.format("%s|%dx%d", key, width, height)
     if cache.cache[slot] then return cache.cache[slot] end
@@ -97,8 +112,7 @@ function CoverCache:get(entry, width, height)
         return scaled(entry.file, self, function()
             local ok, bb = pcall(BookInfo.getCoverImage, BookInfo, nil, entry.file)
             if not ok or not bb then return nil end
-            return roundCorners(RenderImage:scaleBlitBuffer(bb, width, height, true),
-                                math.floor(width * 0.045))
+            return roundCorners(fill(bb, width, height), math.floor(width * 0.045))
         end, width, height)
     end
 
@@ -107,23 +121,20 @@ function CoverCache:get(entry, width, height)
         if not Discover:hasCover(entry.hc_id, entry.image_url) then return nil end
         return scaled("hc:" .. entry.hc_id, self, function()
             local ok, bb = pcall(function()
-                return RenderImage:renderImageFile(Discover:coverFile(entry.hc_id, entry.image_url),
-                                                   false, width, height)
+                return RenderImage:renderImageFile(Discover:coverFile(entry.hc_id, entry.image_url))
             end)
             if not ok or not bb then return nil end
-            return roundCorners(RenderImage:scaleBlitBuffer(bb, width, height, true),
-                                math.floor(width * 0.045))
+            return roundCorners(fill(bb, width, height), math.floor(width * 0.045))
         end, width, height)
     end
 
     if entry.book_id and self:hasRemote(entry.book_id) then
         return scaled("id:" .. entry.book_id, self, function()
             local ok, bb = pcall(function()
-                return RenderImage:renderImageFile(self:coverFile(entry.book_id),
-                                                   false, width, height)
+                return RenderImage:renderImageFile(self:coverFile(entry.book_id))
             end)
             if not ok or not bb then return nil end
-            return roundCorners(bb, math.floor(width * 0.045))
+            return roundCorners(fill(bb, width, height), math.floor(width * 0.045))
         end, width, height)
     end
 
