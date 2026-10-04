@@ -29,6 +29,12 @@ function SyncGuard.seed(file, record, force)
     end
     if position:match("^/body") then
         settings:saveSetting("last_xpointer", position)
+        -- a position with no renderer version reads as one from an old
+        -- KOReader, which then offers to migrate a book it never opened
+        if not settings:readSetting("cre_dom_version") then
+            local cre = require("document/credocument"):engineInit()
+            settings:saveSetting("cre_dom_version", cre.getLatestDomVersion())
+        end
     elseif tonumber(position) then
         settings:saveSetting("last_page", tonumber(position))
     else

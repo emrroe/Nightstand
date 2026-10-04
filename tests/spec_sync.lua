@@ -51,6 +51,9 @@ T.describe("a fresh download opens where the book was left", function()
         local settings = require("docsettings"):open(file)
         T.eq(settings:readSetting("last_xpointer"), XP)
         T.eq(settings:readSetting("percent_finished"), 0.2077)
+        T.eq(settings:readSetting("cre_dom_version"),
+             require("document/credocument"):engineInit().getLatestDomVersion(),
+             "no migration question for a book never opened")
     end)
     T.it("the newer of the checksum's and the book id's position wins", function()
         fresh()
