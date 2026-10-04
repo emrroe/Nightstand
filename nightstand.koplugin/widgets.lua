@@ -30,7 +30,7 @@ local W = {
     BOLD = "NotoSans-Bold.ttf",
     COVER_ASPECT = 1.5,
     GAP = Dim.px(8),
-    STATUS_H = Dim.px(27),
+    TOPBAR_H = Dim.px(44),
 }
 
 --- Side margin for a screen of width `w`.

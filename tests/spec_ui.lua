@@ -433,6 +433,32 @@ T.describe(SIZE .. " › opening a book", function()
     end)
 end)
 
+T.describe(SIZE .. " › searching", function()
+    T.it("shows only matching books, in both views, and Back leaves", function()
+        DATASETS["catalogue with covers"]()
+        for _, view in ipairs({ "grid", "list" }) do
+            require("settings"):set("library_view", view)
+            local lib = quiet(require("libraryscreen"):new{ plugin = plugin(), query = "SANDERSON" })
+            T.ok(#lib.items > 0, "found by author, any case")
+            for _, book in ipairs(lib.items) do
+                T.ok(book.author:lower():find("sanderson", 1, true), "only matches: " .. book.title)
+            end
+            paint(lib, "search " .. view)
+            checkZones(lib, "search " .. view)
+            local closed
+            local close = UIManager.close
+            UIManager.close = function(_, w) closed = w end
+            T.ok(lib:onClose())
+            UIManager.close = close
+            T.ok(closed == lib, "Back from results goes back where the search started")
+            lib:free()
+        end
+        local none = quiet(require("libraryscreen"):new{ plugin = plugin(), query = "zzzz" })
+        T.eq(#none.items, 0)
+        paint(none, "search nothing")
+    end)
+end)
+
 T.describe(SIZE .. " › back on the home screen", function()
     T.it("asks before leaving KOReader, or leaves or stays as Back to exit says", function()
         DATASETS["local files only"]()

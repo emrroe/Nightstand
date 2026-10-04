@@ -56,11 +56,27 @@ end
 
 -- what is on screen -----------------------------------------------------------
 
+--- Books whose title, author or series contains `query`, any case.
+local function matching(entries, query)
+    local needle = query:lower()
+    local out = {}
+    for _index, entry in ipairs(entries) do
+        local hay = table.concat({ entry.title or "", entry.author or "", entry.series or "" }, "\n"):lower()
+        if hay:find(needle, 1, true) then table.insert(out, entry) end
+    end
+    return out
+end
+
 function LibraryScreen:recompute()
     local filtered = Library.filter(self.entries, self.filter)
     self.groups = Library.groups(filtered, self.group, self.sort, self.descending)
 
-    if self.groups and self.open_group then
+    if self.query then
+        -- a search looks through everything, whatever the filter or grouping
+        self.groups = nil
+        self.items = Library.sort(matching(self.entries, self.query), self.sort, self.descending)
+        self.showing_groups = false
+    elseif self.groups and self.open_group then
         -- an opened series shows all of it, whatever the filter
         self.items = {}
         local all = Library.groups(self.entries, self.group, self.sort, self.descending)
@@ -115,7 +131,12 @@ function LibraryScreen:pagerHeight() return Dim.px(30) end
 --- all of itself whatever the filter, goes without.
 function LibraryScreen:headerHeight()
     return self:titleHeight() + self:controlsHeight()
-           + (self.open_group and Size.line.thin or self:tabsHeight())
+           + (self:narrowed() and Size.line.thin or self:tabsHeight())
+end
+
+--- Showing one group or a search: no filter tabs, and Back widens again.
+function LibraryScreen:narrowed()
+    return self.open_group ~= nil or self.query ~= nil
 end
 
 -- layout ------------------------------------------------------------------------
@@ -125,7 +146,7 @@ function LibraryScreen:build()
     local stack = W.stack()
     stack:add(self:titleBand(self:titleHeight(), stack.y), self:titleHeight())
     stack:add(self:controlsBand(self:controlsHeight(), stack.y), self:controlsHeight())
-    if self.open_group then
+    if self:narrowed() then
         stack:add(rule(self.screen_w), Size.line.thin)
     else
         stack:add(self:filterTabs(self:tabsHeight(), stack.y), self:tabsHeight())
@@ -146,13 +167,14 @@ function LibraryScreen:titleBand(h, band_y)
     local row = HorizontalGroup:new{ align = "center" }
     local count = text(self:countLabel(), REGULAR, 11, MUTED)
     local count_w = count:getSize().w + Dim.pad.large
-    if self.open_group then
+    if self:narrowed() then
         local back = W.icon("chevron-left", 20)
+        local name = self.query and T("“%1”", self.query) or self.open_group
         table.insert(row, back)
         table.insert(row, hspan(Dim.pad.small))
-        table.insert(row, text(self.open_group, BOLD, 20, BLACK,
+        table.insert(row, text(name, BOLD, 20, BLACK,
                                inner_w - back:getSize().w - Dim.pad.small - count_w))
-        self:zone(0, band_y, self.screen_w, h, function() self:closeGroup() end)
+        self:zone(0, band_y, self.screen_w, h, function() self:widen() end)
     else
         table.insert(row, text(_("Library"), BOLD, 21, BLACK))
     end
@@ -171,7 +193,7 @@ function LibraryScreen:controlsBand(h, band_y)
     local show = Library.find(Library.GROUPS, self.group)
     local arrow = self.descending and "arrow-down" or "arrow-up"
     local left = { { widget = W.dropdown(self:viewLabel()), on_tap = function() self:chooseView() end } }
-    if not self.open_group then
+    if not self:narrowed() then
         table.insert(left, { widget = W.dropdown(show.label), on_tap = function() self:chooseGroup() end })
     end
     local used = 0
@@ -290,6 +312,12 @@ function LibraryScreen:activate(item)
     self:openBook(item)
 end
 
+--- Back out of an opened group, or out of a search to where it started.
+function LibraryScreen:widen()
+    if self.query and not self.open_group then return UIManager:close(self) end
+    self:closeGroup()
+end
+
 function LibraryScreen:closeGroup()
     self.open_group, self.page = nil, 1
     self:refresh()
@@ -328,12 +356,16 @@ function LibraryScreen:chooseGroup()
 end
 
 function LibraryScreen:onTabAgain()
+    if self.query then
+        self.query, self.open_group, self.page = nil, nil, 1
+        return self:refresh()
+    end
     if self.open_group then self:closeGroup() end
 end
 
 function LibraryScreen:onClose()
-    if self.open_group then
-        self:closeGroup()
+    if self:narrowed() then
+        self:widen()
         return true
     end
     UIManager:close(self)

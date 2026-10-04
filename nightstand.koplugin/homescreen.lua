@@ -40,7 +40,7 @@ end
 --- A tall continue card over labelled shelves of bare covers.
 function HomeScreen:build()
     local w, h = self.screen_w, self.screen_h
-    local status_h = W.STATUS_H
+    local status_h = W.TOPBAR_H
     local tabs_h = self:tabsHeight()
     local tabs_margin = self:tabsMargin()
 
@@ -87,7 +87,7 @@ function HomeScreen:build()
 
     -- each rule is taken out of the band above it, so the stack sums to h
     local line = Size.line.thin
-    add(self:statusBand(status_h - line), status_h - line)
+    add(self:topBar(status_h - line, y), status_h - line)
     add(rule(w), line)
 
     local hero_y = y
@@ -374,27 +374,62 @@ function HomeScreen:cardFact(entry)
     return entry.status == "complete" and _("Finished") or nil
 end
 
-function HomeScreen:statusText()
-    local server = Settings:get("server"):gsub("^https?://", "")
-    if server == "" then server = _("no server set") end
+--- "Home" on the left -- with what is loading in the background after it
+--- -- and refresh and search on the right.
+function HomeScreen:topBar(h, band_y)
+    local title = text(_("Home"), BOLD, 19, BLACK)
+    local row = HorizontalGroup:new{ align = "center", title }
+    local button_w = Dim.px(40)
+    local icons_w = 2 * button_w
     local busy = require("background").status()
-    return busy and (server .. "  ·  " .. busy) or server
-end
-
-function HomeScreen:statusBand(h)
-    local right = text(os.date("%H:%M"), REGULAR, 10.5, MUTED)
-    local inner_w = self.screen_w - 2 * self.gutter
-    -- never runs into the clock: cut with an ellipsis instead
-    local left = text(self:statusText(), REGULAR, 10.5, MUTED,
-                      inner_w - right:getSize().w - Dim.pad.large)
+    if busy then
+        -- measure the title, not the row: a group asked its size mid-build keeps it
+        local room = self.screen_w - 2 * self.gutter - icons_w - title:getSize().w - Dim.pad.large
+        table.insert(row, hspan(Dim.pad.large))
+        table.insert(row, text(busy, REGULAR, 10.5, MUTED, room))
+    end
+    local x = self.screen_w - self.gutter + Dim.pad.default - icons_w
+    self:zone(x, band_y, button_w, h, function() self:refreshAll() end)
+    self:zone(x + button_w, band_y, button_w + self.gutter, h, function() self:search() end)
+    local function button(icon)
+        return CenterContainer:new{ dimen = Geom:new{ w = button_w, h = h }, W.icon(icon, 20) }
+    end
     return LeftContainer:new{
         dimen = Geom:new{ w = self.screen_w, h = h },
         HorizontalGroup:new{
+            align = "center",
             hspan(self.gutter),
-            LeftContainer:new{ dimen = Geom:new{ w = inner_w - right:getSize().w, h = h }, left },
-            right,
+            LeftContainer:new{ dimen = Geom:new{ w = x - self.gutter, h = h }, row },
+            button("refresh"),
+            button("search"),
         },
     }
+end
+
+--- Fetch the catalogue again, then covers and positions in the background.
+function HomeScreen:refreshAll()
+    if not self.plugin then return end
+    require("net").whenOnline(function() self.plugin:refreshCatalogue() end)
+end
+
+--- Ask for a word, then show the Library's books that match it.
+function HomeScreen:search()
+    local InputDialog = require("ui/widget/inputdialog")
+    local dialog
+    dialog = InputDialog:new{
+        title = _("Search your library"),
+        input_hint = _("Title, author or series"),
+        buttons = {{
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+            { text = _("Search"), is_enter_default = true, callback = function()
+                local query = dialog:getInputText():gsub("^%s+", ""):gsub("%s+$", "")
+                UIManager:close(dialog)
+                if query ~= "" and self.plugin then self.plugin:openLibrary(query) end
+            end },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
 end
 
 function HomeScreen:heroEmpty(h)

@@ -56,8 +56,9 @@ function Nightstand:openSettings()
     UIManager:show(require("settingsscreen"):new{ plugin = self }, "ui")
 end
 
-function Nightstand:openLibrary()
-    UIManager:show(require("libraryscreen"):new{ plugin = self }, "ui")
+--- The Library tab; with `query`, only the books it matches.
+function Nightstand:openLibrary(query)
+    UIManager:show(require("libraryscreen"):new{ plugin = self, query = query }, "ui")
 end
 
 --- Discover fetches from Hardcover when it has nothing, or nothing recent,
