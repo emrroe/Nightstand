@@ -240,18 +240,20 @@ T.describe("home shelves", function()
             T.ok(shelf.empty and #shelf.empty > 0, shelf.label .. " explains itself when empty")
         end
     end)
-    T.it("shelves hold unread books only, newest first, never the hero", function()
+    T.it("new on the server and ready here never overlap; the hero is on neither", function()
         local Books = require("books")
         local hero = { title = "hero", status = "reading", percent = 0.5, added = "2026-09", on_device = true }
         local list = { hero,
                        { title = "done", status = "complete", added = "2026-10", on_device = true },
-                       { title = "other", status = "reading", percent = 0.2, added = "2026-10", on_device = true },
+                       { title = "other", status = "reading", percent = 0.2, added = "2026-06", on_device = true,
+                         last_read = 5 },
                        { title = "peeked", status = "reading", percent = 0, added = "2026-08", on_device = true },
                        { title = "new", status = "new", added = "2026-10-03" },
-                       { title = "local", status = "new", added = "2026-07", on_device = true } }
+                       { title = "elsewhere", status = "reading", percent = 0.4, added = "2026-10-04" },
+                       { title = "local", status = "new", added = "2026-10-05", on_device = true } }
         local shelves = Books:shelves(list, hero)
-        T.eq(T.titles(shelves[1].books), { "new", "peeked", "local" })
-        T.eq(T.titles(shelves[2].books), { "peeked", "local" })
+        T.eq(T.titles(shelves[1].books), { "new" })
+        T.eq(T.titles(shelves[2].books), { "other", "local", "peeked" }, "under way first, then newest")
     end)
 end)
 
