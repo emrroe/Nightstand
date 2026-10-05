@@ -229,28 +229,29 @@ T.describe("home shelves", function()
         cur, fresh = Books:current({ { title = "peeked", status = "reading", percent = 0, added_rank = 1 } })
         T.eq(fresh, true, "only peeked at: a suggestion, not progress")
     end)
-    T.it("Continue holds books under way, then the next of each series", function()
+    T.it("always the same two shelves, empty ones kept with something to say", function()
         local Books = require("books")
-        local hero = { title = "hero", status = "reading", percent = 0.5, last_read = 9 }
-        local list = { hero,
-                       { title = "other", status = "reading", percent = 0.2, last_read = 5 },
-                       { title = "peeked", status = "reading", percent = 0 },
-                       { title = "S1", series = "S", series_index = 1, status = "complete", last_read = 3 },
-                       { title = "S2", series = "S", series_index = 2, status = "new" } }
-        local shelves = Books:shelves(list, hero)
-        T.eq(shelves[1].label, "Continue")
-        T.eq(T.titles(shelves[1].books), { "other", "S2" })
-    end)
-    T.it("no shelf of finished books; want to read comes from the caller", function()
-        local Books = require("books")
-        local wanted = { title = "w", status = "new" }
-        local shelves = Books:shelves({ { title = "done", status = "complete", added = "2026" }, wanted },
-                                      nil, { wanted })
+        local shelves = Books:shelves({}, nil)
+        T.eq(#shelves, 2)
+        T.eq(shelves[1].label, "Recently added")
+        T.eq(shelves[2].label, "Ready on this device")
         for _, shelf in ipairs(shelves) do
-            for _, book in ipairs(shelf.books) do T.ok(book.title ~= "done", shelf.label .. " shows a finished book") end
+            T.eq(#shelf.books, 0)
+            T.ok(shelf.empty and #shelf.empty > 0, shelf.label .. " explains itself when empty")
         end
-        T.eq(shelves[2].label, "Want to read")
-        T.eq(T.titles(shelves[2].books), { "w" })
+    end)
+    T.it("shelves hold unread books only, newest first, never the hero", function()
+        local Books = require("books")
+        local hero = { title = "hero", status = "reading", percent = 0.5, added = "2026-09", on_device = true }
+        local list = { hero,
+                       { title = "done", status = "complete", added = "2026-10", on_device = true },
+                       { title = "other", status = "reading", percent = 0.2, added = "2026-10", on_device = true },
+                       { title = "peeked", status = "reading", percent = 0, added = "2026-08", on_device = true },
+                       { title = "new", status = "new", added = "2026-10-03" },
+                       { title = "local", status = "new", added = "2026-07", on_device = true } }
+        local shelves = Books:shelves(list, hero)
+        T.eq(T.titles(shelves[1].books), { "new", "peeked", "local" })
+        T.eq(T.titles(shelves[2].books), { "peeked", "local" })
     end)
 end)
 

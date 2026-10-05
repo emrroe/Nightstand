@@ -217,41 +217,27 @@ function Books:progressTag(entry)
     return string.format("%d%%", math.floor(entry.percent * 100 + 0.5)), "progress"
 end
 
---- Shelves for the stacked home layout, most useful first. `wanted` are
---- library books on the reader's Want to read list. Empty shelves are
---- dropped by the caller.
-function Books:shelves(entries, skip, wanted)
-    local shown = {}
-    local function pick(test, sort)
+--- The two shelves under the hero, always both: what arrived on the server
+--- lately, and what is ready to read here. `empty` is said when one has
+--- nothing to show; `see_all` is the Library view holding the whole shelf.
+function Books:shelves(entries, skip)
+    local function pick(test)
         local out = {}
         for _index, entry in ipairs(entries) do
             if entry ~= skip and test(entry) then table.insert(out, entry) end
         end
-        if sort then table.sort(out, sort) end
+        table.sort(out, function(a, b) return (a.added or "") > (b.added or "") end)
         return out
     end
-    local by_added = function(a, b) return (a.added or "") > (b.added or "") end
-    local by_read = function(a, b) return (a.last_read or 0) > (b.last_read or 0) end
-
-    -- books under way, then the next book of each series being read
-    local continue = pick(Books.started, by_read)
-    for _index, entry in ipairs(self:nextInSeries(entries, skip)) do
-        table.insert(continue, entry)
-        shown[entry] = true
-    end
     local unfinished = function(e) return e.status ~= "complete" and not Books.started(e) end
-
-    -- `see_all`: the Library view that shows the whole of a shelf
     return {
-        { label = _("Continue"), books = continue,
-          see_all = { filter = "reading", sort = "recent", descending = true } },
-        { label = _("Want to read"), books = wanted or {} },
         { label = _("Recently added"),
-          books = pick(function(e) return e.added ~= nil and unfinished(e) end, by_added),
+          books = pick(function(e) return e.added ~= nil and unfinished(e) end),
+          empty = _("Nothing new on the server. Refresh to look again."),
           see_all = { filter = "unread", sort = "added", descending = true } },
         { label = _("Ready on this device"),
-          books = pick(function(e) return e.on_device and unfinished(e) and not shown[e] end,
-                       by_added),
+          books = pick(function(e) return e.on_device and unfinished(e) end),
+          empty = _("No unread books on this device yet. Download one from the Library."),
           see_all = { filter = "device", sort = "added", descending = true } },
     }
 end

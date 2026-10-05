@@ -6,6 +6,7 @@ bar. Discover reuses this layout with its own hero and shelves.
 --]]--
 
 local CenterContainer = require("ui/widget/container/centercontainer")
+local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -44,37 +45,27 @@ function HomeScreen:build()
     local tabs_h = self:tabsHeight()
     local tabs_margin = self:tabsMargin()
 
-    local all = {}
-    for _index, shelf in ipairs(self:shelfSource()) do
-        if #shelf.books > 0 then table.insert(all, shelf) end
-    end
+    local all = self:shelfSource()
 
-    -- A book shows up once on the home screen: later shelves skip covers an
-    -- earlier one already shows. That can empty a shelf, which changes the
-    -- plan, so plan, de-duplicate, and plan again with what is left.
+    -- A book shows up once on the home screen: a later shelf skips covers an
+    -- earlier one already shows. Shelves stay even when that empties them.
     local function distinct(cols)
         local seen, out = {}, {}
         for _index, shelf in ipairs(all) do
             local books = {}
-            for _index, book in ipairs(shelf.books) do
+            for _index2, book in ipairs(shelf.books) do
                 if not seen[book] then table.insert(books, book) end
             end
-            if #books > 0 then
-                for i = 1, math.min(cols, #books) do seen[books[i]] = true end
-                table.insert(out, { label = shelf.label, books = books, total = #shelf.books,
-                                   see_all = shelf.see_all })
-            end
+            for i = 1, math.min(cols, #books) do seen[books[i]] = true end
+            table.insert(out, { label = shelf.label, books = books, total = #books,
+                                empty = shelf.empty, see_all = shelf.see_all })
         end
         return out
     end
 
     local footer_h = tabs_h + tabs_margin
-    local count, cols, cover_w, each, hero_h = self:shelfPlan(math.max(1, #all), status_h, footer_h)
+    local count, cols, cover_w, each, hero_h = self:shelfPlan(#all, status_h, footer_h)
     local shelves = distinct(cols)
-    if #shelves < count then
-        count, cols, cover_w, each, hero_h = self:shelfPlan(math.max(1, #shelves), status_h, footer_h)
-        shelves = distinct(cols)
-    end
     self.strip_cover_w = cover_w
     self.strip_cols = cols
 
@@ -117,23 +108,7 @@ end
 --- The shelves to stack under the hero; other screens built like this one
 --- (Discover) supply their own.
 function HomeScreen:shelfSource()
-    return Books:shelves(self.entries, self.current, self:wantedBooks())
-end
-
---- Library books on the Hardcover Want to read list, not yet finished.
-function HomeScreen:wantedBooks()
-    local Discover = require("discover")
-    local data = require("hardcover"):isLinked() and Discover:load()
-    if not data then return nil end
-    local out = {}
-    for _index, id in ipairs(data.lists.want or {}) do
-        local book = data.books[id]
-        local entry = book and Discover.match(book, self.entries)
-        if entry and entry.status ~= "complete" and not Books.started(entry) then
-            table.insert(out, entry)
-        end
-    end
-    return out
+    return Books:shelves(self.entries, self.current)
 end
 
 --- The tab bar is chrome, not content: it keeps one height whatever the
@@ -173,7 +148,8 @@ function HomeScreen:shelfPlan(max_count, status_h, footer_h)
     local tolerance = 0.08
 
     local plans = {}
-    for count = 1, math.min(max_count, 4) do
+    -- every shelf is shown; only their size and the hero's are planned
+    for count = max_count, max_count do
         for cols = 3, 10 do
             local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
             if cover_w < smallest then break end
@@ -249,8 +225,7 @@ function HomeScreen:seeAll(target)
 end
 
 function HomeScreen:stripBand(shelf, h, band_y)
-    -- too few books to fill the row: wider cards that say more about each
-    if #shelf.books < self.strip_cols then return self:cardsBand(shelf, h, band_y) end
+    if #shelf.books == 0 then return self:emptyBand(shelf, h, band_y) end
     local w = self.screen_w
     local gap = W.GAP
     local cover_w = self.strip_cover_w
@@ -297,75 +272,30 @@ local function wrapped(str, face, size, colour, width, most)
     }
 end
 
---- A shelf of a few books, each a cover with its title, author and where
---- you are in it, sharing the row's width.
-function HomeScreen:cardsBand(shelf, h, band_y)
-    local gap = W.GAP
-    local n = #shelf.books
-    local cover_w = self.strip_cover_w
-    local cover_h = W.coverHeight(cover_w)
+--- A shelf with nothing on it keeps its place, and says why it is empty.
+function HomeScreen:emptyBand(shelf, h, band_y)
+    local cover_h = W.coverHeight(self.strip_cover_w)
     local label_h = self:labelHeight()
-    local area_w = self.screen_w - 2 * self.gutter
-    local card_w = math.floor((area_w - (n - 1) * gap) / n)
-    local text_w = card_w - cover_w - Dim.pad.large
+    local inner_w = self.screen_w - 2 * self.gutter
     local top = band_y + math.floor((h - (label_h + Dim.pad.default + cover_h)) / 2)
-
-    local row = HorizontalGroup:new{ align = "top" }
-    for index, entry in ipairs(shelf.books) do
-        if index > 1 then table.insert(row, hspan(gap)) end
-        local col = VerticalGroup:new{ align = "left" }
-        local room = cover_h
-        local function put(widget)
-            table.insert(col, widget)
-            room = room - widget:getSize().h
-        end
-        local function lines(face, size, most)
-            return math.min(most, math.floor(room / W.lineHeight(face, size)))
-        end
-        put(wrapped(entry.title, BOLD, 13.5, BLACK, text_w, math.max(1, lines(BOLD, 13.5, 3))))
-        if entry.author ~= "" and lines(REGULAR, 11.5, 1) > 0 then
-            put(text(entry.author, REGULAR, 11.5, MUTED, text_w))
-        end
-        if Books.started(entry) and room > Dim.px(16) then
-            local pct = text(T("%1%", math.floor(entry.percent * 100 + 0.5)), REGULAR, 10.5, MUTED)
-            put(VerticalSpan:new{ width = Dim.pad.default })
-            put(HorizontalGroup:new{
-                align = "center",
-                W.progress(text_w - pct:getSize().w - Dim.pad.large, entry.percent),
-                hspan(Dim.pad.large),
-                pct,
-            })
-        else
-            local fact = self:cardFact(entry)
-            if fact and lines(REGULAR, 11, 1) > 0 then
-                put(wrapped(fact, REGULAR, 11, BLACK, text_w, lines(REGULAR, 11, 2)))
-            end
-        end
-        if n == 1 and entry.summary and lines(REGULAR, 11.5, 99) > 0 then
-            put(VerticalSpan:new{ width = Dim.pad.default })
-            put(wrapped(entry.summary, REGULAR, 11.5, MUTED, text_w, lines(REGULAR, 11.5, 99)))
-        end
-        table.insert(row, HorizontalGroup:new{
-            align = "top",
-            CoverTile.new(entry, cover_w, cover_h, { no_tag = true }),
-            hspan(Dim.pad.large),
-            col,
-        })
-        self:zone(self.gutter + (index - 1) * (card_w + gap), top + label_h + Dim.pad.default,
-                  card_w, cover_h,
-                  function() self:openBook(entry) end, function() self:holdBook(entry) end)
-        if index < n then table.insert(row, hspan(card_w - cover_w - Dim.pad.large - col:getSize().w)) end
-    end
-
     local inner = VerticalGroup:new{ align = "left" }
     table.insert(inner, self:shelfHeader(shelf, top))
     table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
-    table.insert(inner, row)
+    table.insert(inner, FrameContainer:new{
+        bordersize = Size.border.thin, color = W.FAINT, radius = Dim.px(4),
+        padding = 0, margin = 0,
+        CenterContainer:new{
+            dimen = Geom:new{ w = inner_w - 2 * Size.border.thin, h = cover_h - 2 * Size.border.thin },
+            TextBoxWidget:new{
+                text = shelf.empty or "", face = Dim.face(REGULAR, 12), fgcolor = MUTED,
+                width = math.floor(inner_w * 0.8), alignment = "center",
+            },
+        },
+    })
     return band(self.screen_w, h, self.gutter, inner)
 end
 
---- Where you are in a card's book that is not under way: which of its
---- series it is.
+--- Which of its series a book not yet under way is.
 function HomeScreen:cardFact(entry)
     if entry.series and entry.series_index then
         local n = entry.series_index
