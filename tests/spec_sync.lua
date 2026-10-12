@@ -32,14 +32,53 @@ local function book(name)
     return file
 end
 
---- A stand-in for the sync plugin: the parts the guard calls.
-local function fakeSync(here)
-    local sync = { device_id = "phone-id", here = here, pushed = 0 }
-    function sync:updateProgress() self.pushed = self.pushed + 1 end
-    function sync:getDocumentDigest() return "phonesum" end
-    function sync:getLastPercent() return self.here end
-    function sync:syncToProgress(progress) self.went = progress end
-    return sync
+-- Scheduled callbacks run when the test says so.
+local pending = {}
+UIManager.scheduleIn = function(_, _secs, fn) table.insert(pending, fn) end
+UIManager.nextTick = function(_, fn) table.insert(pending, fn) end
+UIManager.unschedule = function(_, fn)
+    for i = #pending, 1, -1 do if pending[i] == fn then table.remove(pending, i) end end
+end
+local function drain()
+    while #pending > 0 do table.remove(pending, 1)() end
+end
+
+G_reader_settings:saveSetting("device_id", "phone-id")
+
+--- A stand-in for an open book in the reader: the parts the engine uses.
+local function reader(percentage)
+    local settings = {}
+    local ui = {
+        here = percentage, events = {},
+        document = { info = { has_pages = false }, file = "/books/b.epub" },
+        doc_settings = {
+            readSetting = function(_, key) return settings[key] end,
+            saveSetting = function(_, key, value) settings[key] = value end,
+        },
+    }
+    settings.partial_md5_checksum = "booksum"
+    ui.rolling = {
+        getLastProgress = function() return "/body/DocFragment[1].0#" .. ui.here end,
+        getLastPercent = function() return ui.here end,
+    }
+    function ui:handleEvent(event) table.insert(self.events, event) end
+    return ui
+end
+
+--- An engine on `ui` whose network and clock the test controls.
+local function engine(ui, net)
+    net = net or { online = true, time = 1000 }
+    local e = require("syncengine").new(ui, {
+        online = function() return net.online end,
+        clock = function() return net.time end,
+    })
+    return e, net
+end
+
+local function puts(calls)
+    local n = 0
+    for _, c in ipairs(calls) do if c:match("^PUT") then n = n + 1 end end
+    return n
 end
 
 T.describe("a fresh download opens where the book was left", function()
@@ -88,66 +127,114 @@ T.describe("a fresh download opens where the book was left", function()
     end)
 end)
 
-T.describe("the sync plugin never silently moves another device back", function()
-    T.it("pushes when the server is behind, empty, or this device's own", function()
-        local SyncGuard = require("syncguard")
-        for _, routes in ipairs({
-            {},
-            { ["/kosync/syncs/progress/phonesum"] = record(0.1) },
-            { ["/kosync/syncs/progress/phonesum"] = record(0.9, "phone", { device_id = "phone-id" }) },
+T.describe("nothing is saved before this device has compared with the server", function()
+    T.it("reading offline saves nothing; reconnecting asks before anything is saved", function()
+        fresh(); pending = {}
+        local calls = Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
+        local ui = reader(0.01)
+        local e, net = engine(ui, { online = false, time = 1000 })
+        e:opened(); drain()
+        for _ = 1, 5 do ui.here = ui.here + 0.002; e:pageTurned() end
+        e:leaving(); drain()
+        T.eq(#calls, 0, "offline: no request at all")
+        net.online = true
+        e:connected()
+        T.eq(calls[#calls], "GET booksum", "compared first")
+        T.eq(#shown, 1, "asked, although this device turned pages more recently")
+        T.eq(puts(calls), 0, "nothing saved while asking")
+        e:pageTurned(); e:leaving(); drain()
+        T.eq(puts(calls), 0, "still nothing saved while the question is open")
+        shown[1].cancel_callback()
+        T.eq(puts(calls), 1, "keeping this device's place saves it")
+    end)
+    T.it("going to the other device's place moves the reader and saves nothing yet", function()
+        fresh(); pending = {}
+        local calls = Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
+        local ui = reader(0.03)
+        local e = engine(ui)
+        e:opened(); drain()
+        shown[1].ok_callback()
+        T.eq(ui.events[1].handler, "onGotoXPointer")
+        T.eq(ui.events[1].args[1], XP)
+        T.eq(puts(calls), 0)
+        e:pageTurned(); drain()
+        T.eq(puts(calls), 1, "reading on from there saves as usual")
+    end)
+    T.it("asks whichever way the other device moved", function()
+        fresh(); pending = {}
+        Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.05) })
+        local e = engine(reader(0.30))
+        e:opened(); drain()
+        T.eq(#shown, 1, "the other device went back: still asked")
+    end)
+    T.it("no question for this device's own save, an empty server or the same place", function()
+        for name, rec in pairs({
+            own = record(0.40, "phone", { device_id = "phone-id" }),
+            same = record(0.301),
+            none = false,
         }) do
-            fresh()
-            Fakes.cwa(routes)
-            local sync = fakeSync(0.2)
-            SyncGuard.attach({ cwasync = sync })
-            sync:updateProgress(false, false)
-            T.eq(sync.pushed, 1)
-            T.eq(#shown, 0, "no question")
+            fresh(); pending = {}
+            local calls = Fakes.cwa(rec and { ["/kosync/syncs/progress/booksum"] = rec } or {})
+            local ui = reader(0.30)
+            local e = engine(ui)
+            e:opened(); drain()
+            T.eq(#shown, 0, name .. ": no question")
+            e:pageTurned(); drain()
+            T.eq(puts(calls), 1, name .. ": saves after reading")
         end
     end)
-    T.it("asks when another device is further on, and checks only once", function()
-        fresh()
-        local calls = Fakes.cwa({ ["/kosync/syncs/progress/phonesum"] = record(0.21) })
-        local sync = fakeSync(0.004)
-        require("syncguard").attach({ cwasync = sync })
-        sync:updateProgress(false, false)
-        T.eq(sync.pushed, 0, "held back")
-        T.eq(#shown, 1, "asked")
-        sync:updateProgress(false, false)
-        T.eq(#shown, 1, "asked once at a time")
-        shown[1].ok_callback()
-        T.eq(sync.went, XP, "went to the other device's place")
-        local before = #calls
-        sync:updateProgress(false, false)
-        T.eq(sync.pushed, 1, "pushes freely afterwards")
-        T.eq(#calls, before, "without asking the server again")
-    end)
-    T.it("keeping this device's position pushes it on purpose", function()
-        fresh()
-        Fakes.cwa({ ["/kosync/syncs/progress/phonesum"] = record(0.21) })
-        local sync = fakeSync(0.004)
-        require("syncguard").attach({ cwasync = sync })
-        sync:updateProgress(false, false)
+    T.it("a position already answered for is not asked about again", function()
+        fresh(); pending = {}
+        Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
+        local ui = reader(0.03)
+        engine(ui):opened(); drain()
         shown[1].cancel_callback()
-        T.eq(sync.pushed, 1)
-        T.eq(sync.went, nil)
+        Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
+        shown = {}
+        engine(ui):opened(); drain()
+        T.eq(#shown, 0, "reopening the book: the same old position is not a new question")
     end)
-    T.it("stays quiet when going to sleep", function()
-        fresh()
-        Fakes.cwa({ ["/kosync/syncs/progress/phonesum"] = record(0.21) })
-        local sync = fakeSync(0.004)
-        require("syncguard").attach({ cwasync = sync })
-        sync:updateProgress(true, false, true)
-        T.eq(sync.pushed, 0)
-        T.eq(#shown, 0)
+    T.it("a server that cannot be reached is tried again, and nothing is saved meanwhile", function()
+        fresh(); pending = {}
+        local calls = Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
+        Fakes.sync_unreachable = true
+        local e, net = engine(reader(0.03))
+        e:opened(); drain()
+        e:pageTurned(); e:leaving(); drain()
+        Fakes.sync_unreachable = false
+        require("syncserver").reach = nil  -- as if the five quiet minutes had passed
+        T.eq(#calls, 0)
+        e:pageTurned()
+        T.eq(#calls, 0, "not hammered on every page")
+        net.time = net.time + 31
+        e:pageTurned()
+        T.eq(calls[1], "GET booksum", "tried again after a while")
+        T.eq(#shown, 1)
     end)
-    T.it("a manual push is never held back", function()
-        fresh()
-        Fakes.cwa({ ["/kosync/syncs/progress/phonesum"] = record(0.21) })
-        local sync = fakeSync(0.004)
-        require("syncguard").attach({ cwasync = sync })
-        sync:updateProgress(false, true)
-        T.eq(sync.pushed, 1)
+    T.it("waking up compares again: another device may have been read meanwhile", function()
+        fresh(); pending = {}
+        local calls = Fakes.cwa({})
+        local ui = reader(0.10)
+        local e = engine(ui)
+        e:opened(); drain()
+        e:pageTurned(); drain()
+        T.eq(puts(calls), 1)
+        Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.25, "nova2", { timestamp = os.time() + 60 }) })
+        e:woke(); drain()
+        T.eq(#shown, 1, "the Nova read on while this device slept")
+    end)
+    T.it("closing the book or sleeping saves, but only online", function()
+        fresh(); pending = {}
+        local calls = Fakes.cwa({})
+        local e, net = engine(reader(0.10))
+        e:opened(); drain()
+        e:pageTurned()
+        net.online = false
+        e:leaving()
+        T.eq(puts(calls), 0)
+        net.online = true
+        e:leaving()
+        T.eq(puts(calls), 1)
     end)
 end)
 

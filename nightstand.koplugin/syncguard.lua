@@ -1,19 +1,13 @@
 --[[--
-Keeps a reading position from being lost between devices.
+Opens a freshly downloaded book where it was left, rather than on page one.
 
-Two ways it used to happen. A book downloaded from CWA opened on page one:
-CWA writes its own id into every EPUB it serves, so a fresh copy has a
-different checksum from one fetched elsewhere and the sync plugin found no
-position for it. `seed` puts the download where the book was left before it
-opens. And the sync plugin pushes whatever this device has, so that first
-page then replaced the real position on the server; `attach` makes it ask
-before a push would move another device's position backwards.
+CWA writes its own id into every EPUB it serves, so a fresh copy can have a
+different checksum from one fetched elsewhere and find no position under it.
+`seedDownload` writes the latest known position -- by checksum or by CWA
+book id -- into the new copy's settings before it opens.
 --]]--
 
-local UIManager = require("ui/uimanager")
 local Progress = require("progress")
-local _ = require("gettext")
-local T = require("ffi/util").template
 
 local SyncGuard = {}
 
@@ -67,52 +61,6 @@ function SyncGuard.seedDownload(entry, file)
     end
     Progress:choose(entry.book_id, nil)
     return SyncGuard.seed(file, record)
-end
-
---- Wrap the reader's sync plugin (CWA's or KOReader's own) so it checks the
---- server before its first push for a book, and asks rather than overwrite
---- a position another device has taken further.
-function SyncGuard.attach(ui)
-    local sync = ui and (ui.cwasync or ui.kosync)
-    if not sync or sync.nightstand_guarded or type(sync.updateProgress) ~= "function" then return end
-    sync.nightstand_guarded = true
-    require("logger").info("Nightstand: guarding", sync.name or "sync", "pushes")
-    local push = sync.updateProgress
-    local cleared = false
-
-    sync.updateProgress = function(self, ensure_networking, interactive, on_suspend)
-        if cleared or interactive then return push(self, ensure_networking, interactive, on_suspend) end
-        local NetworkMgr = require("ui/network/manager")
-        if not NetworkMgr:isOnline() then
-            -- offline the plugin defers itself and comes back through here
-            return push(self, ensure_networking, interactive, on_suspend)
-        end
-        local digest = self:getDocumentDigest()
-        local remote = digest and Progress:fetch(digest)
-        local here = self:getLastPercent() or 0
-        if not remote or remote.device_id == self.device_id or remote.percentage <= here + 0.01 then
-            cleared = true
-            return push(self, ensure_networking, interactive, on_suspend)
-        end
-        -- going to sleep is no moment for a question; the next push asks
-        if on_suspend or self.nightstand_asking then return end
-        self.nightstand_asking = true
-        local device = remote.device or _("Another device")
-        UIManager:show(require("ui/widget/confirmbox"):new{
-            text = T(_("%1 is further on in this book (%2%). This device is at %3%.\n\nGo to where %1 is, or keep reading here and save this position instead?"),
-                     device, math.floor(remote.percentage * 100 + 0.5), math.floor(here * 100 + 0.5)),
-            ok_text = _("Go there"),
-            cancel_text = _("Keep this one"),
-            ok_callback = function()
-                self.nightstand_asking, cleared = false, true
-                if remote.progress then self:syncToProgress(remote.progress) end
-            end,
-            cancel_callback = function()
-                self.nightstand_asking, cleared = false, true
-                push(self, ensure_networking, true, false)
-            end,
-        })
-    end
 end
 
 return SyncGuard

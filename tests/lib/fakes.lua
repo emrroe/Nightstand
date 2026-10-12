@@ -170,6 +170,32 @@ function Fakes.cwa(routes)
         end
         return nil, "405"
     end
+    -- positions go through the sync client; answer from the same routes
+    local SyncServer = require("syncserver")
+    SyncServer.realCurrent = SyncServer.realCurrent or SyncServer.current
+    SyncServer.current = function()
+        return { kind = "cwa", url = "https://cwa.test/kosync", username = "reader", password = "secret" }
+    end
+    SyncServer.request = function(_server, method, path, payload)
+        if Fakes.sync_unreachable then return nil, "timeout" end
+        local rapidjson = require("rapidjson")
+        local doc = path:match("^/syncs/progress/(.+)$")
+        if method == "GET" and doc then
+            table.insert(calls, "GET " .. doc)
+            local body = routes["/kosync/syncs/progress/" .. doc]
+            if type(body) == "function" then body = body() end
+            return 200, body and rapidjson.decode(body) or {}
+        end
+        if method == "PUT" and path == "/syncs/progress" then
+            table.insert(calls, "PUT " .. payload.document)
+            local record = {}
+            for k, v in pairs(payload) do record[k] = v end
+            record.timestamp = os.time()
+            routes["/kosync/syncs/progress/" .. payload.document] = rapidjson.encode(record)
+            return 200, { document = payload.document }
+        end
+        return 404
+    end
     Catalog.fetchTo = function(_, path, dest)
         table.insert(calls, path)
         local body = routes[path]

@@ -24,6 +24,7 @@ local Availability = require("availability")
 local Catalog = require("catalog")
 local Hardcover = require("hardcover")
 local HardcoverLink = require("hardcoverlink")
+local SyncServer = require("syncserver")
 local Updater = require("updater")
 local Vendors = require("vendors")
 local Settings = require("settings")
@@ -39,24 +40,16 @@ local BLACK, MUTED, FAINT, BOLD, REGULAR = W.BLACK, W.MUTED, W.FAINT, W.BOLD, W.
 local SettingsScreen = NightstandScreen:extend{
     name = "nightstand_settings",
     tab_id = "settings",
+    pageable = true,
 }
 
 function SettingsScreen:groups()
     local plugin = self.plugin
     local books_dir = Settings:booksDir()
     return {
-        { _("Library"), {
-            { label = _("Server"), value = Settings:get("server"),
-              action = function() plugin:editServer() end },
-            { label = _("Books folder"),
-              value = books_dir ~= "" and books_dir or _("not set"),
-              action = function() plugin:editServer() end },
-            { label = _("Refresh catalogue"),
-              value = T(_("%1 books"), Catalog:count()),
-              action = function() plugin:refreshCatalogue() self:refresh() end },
-            { label = _("Update positions when the device wakes"), key = "refresh_on_wake" },
-        }},
+        { _("Library"), self:libraryRows(books_dir) },
         { _("Hardcover"), self:hardcoverRows() },
+        { _("Sync"), self:syncRows() },
         { _("Downloads"), {
             { label = _("Over Wi-Fi only"), key = "wifi_only" },
         }},
@@ -68,6 +61,8 @@ function SettingsScreen:groups()
                   Availability:ensure(books_dir)
                   self:refresh()
               end },
+            { label = _("KOReader plugins"), chevron = true,
+              action = function() UIManager:show(require("pluginsscreen"):new{ plugin = plugin }, "ui") end },
             { label = _("All KOReader settings"), chevron = true,
               action = function() plugin:openKoreaderMenu() end },
         }},
@@ -77,6 +72,107 @@ function SettingsScreen:groups()
               action = function() self:checkForUpdates() end },
         }},
     }
+end
+
+-- sync ---------------------------------------------------------------------------
+
+local SYNC_LABELS = {
+    cwa = _("CWA server"),
+    public = _("KOReader's public server"),
+    custom = _("Another sync server"),
+    off = _("Off"),
+}
+
+function SettingsScreen:syncRows()
+    local chosen = Settings:get("sync_service") or "off"
+    local current = SyncServer.current()
+    local rows = {
+        { label = _("Reading positions"), value = SYNC_LABELS[chosen] or chosen,
+          action = function() self:chooseSync() end },
+    }
+    if chosen == "custom" then
+        table.insert(rows, { label = _("Server address"), value = Settings:get("sync_url") or _("not set"),
+                             action = function() self:syncAccount("custom") end })
+    end
+    if chosen == "public" or chosen == "custom" then
+        table.insert(rows, { label = _("Account"),
+                             value = current.kind ~= "off" and current.username or _("not signed in"),
+                             action = function() self:syncAccount(chosen) end })
+    elseif chosen == "cwa" and current.kind == "off" then
+        table.insert(rows, { label = _("Account"), value = _("set the server first"),
+                             action = function() self.plugin:editServer() end })
+    end
+    return rows
+end
+
+function SettingsScreen:chooseSync()
+    local options = {
+        { id = "cwa", label = SYNC_LABELS.cwa },
+        { id = "public", label = SYNC_LABELS.public },
+        { id = "custom", label = SYNC_LABELS.custom },
+        { id = "off", label = _("Off: keep positions on this device") },
+    }
+    NightstandScreen.menu(_("Sync reading positions through"), options, Settings:get("sync_service") or "off",
+        function(spec)
+            Settings:set("sync_service", spec.id)
+            self:refresh()
+            if (spec.id == "public" or spec.id == "custom") and SyncServer.current().kind == "off" then
+                self:syncAccount(spec.id)
+            end
+        end)
+end
+
+--- Sign in to (or create an account on) the public or another sync server.
+function SettingsScreen:syncAccount(kind)
+    local InfoMessage = require("ui/widget/infomessage")
+    local MultiInputDialog = require("ui/widget/multiinputdialog")
+    local fields = {}
+    if kind == "custom" then
+        table.insert(fields, { description = _("Server address"), text = Settings:get("sync_url") or "",
+                               hint = "https://sync.example.com" })
+    end
+    table.insert(fields, { description = _("Username"), text = Settings:get("sync_username") or "" })
+    table.insert(fields, { description = _("Password"), text = "", text_type = "password" })
+    local dialog
+    local function submit(create)
+        local values = dialog:getFields()
+        local url = kind == "custom" and values[1] or SyncServer.PUBLIC
+        local user, password = values[#values - 1], values[#values]
+        if url == "" or user == "" or password == "" then return end
+        UIManager:close(dialog)
+        require("net").whenOnline(function()
+            local ok, result
+            if create then
+                ok, result = SyncServer.register(url, user, password)
+            else
+                ok, result = SyncServer.signIn(url, user, password)
+            end
+            if not ok then
+                UIManager:show(InfoMessage:new{ text = T(_("That did not work: %1"), tostring(result)) })
+                return
+            end
+            if kind == "custom" then Settings:set("sync_url", url) end
+            Settings:set("sync_username", user)
+            Settings:set("sync_userkey", result)
+            self:refresh()
+            UIManager:show(InfoMessage:new{
+                text = create and _("Account created. Reading positions now sync.")
+                               or _("Signed in. Reading positions now sync."),
+                timeout = 3,
+            })
+        end)
+    end
+    dialog = MultiInputDialog:new{
+        title = kind == "public" and _("KOReader's public sync server") or _("Sync server"),
+        fields = fields,
+        buttons = {{
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+            { text = _("Create account"), callback = function() submit(true) end },
+            { text = _("Sign in"), is_enter_default = true, callback = function() submit(false) end },
+        }},
+    }
+    UIManager:show(dialog)
+    dialog:onShowKeyboard()
 end
 
 function SettingsScreen:updateStatus()
@@ -140,6 +236,27 @@ function SettingsScreen:installUpdate(release)
     end
     Settings:delete("update_available")
     UIManager:askForRestart(T(_("Nightstand %1 is installed. Restart KOReader to use it."), release.version))
+end
+
+--- With a CWA server: the server, its catalogue and refreshing it. Without
+--- one, the books folder is the whole library.
+function SettingsScreen:libraryRows(books_dir)
+    local plugin = self.plugin
+    local server = Settings:get("server")
+    local rows = {
+        { label = _("Server"), value = server ~= "" and server or _("none: books folder only"),
+          action = function() plugin:editServer() end },
+        { label = _("Books folder"),
+          value = books_dir ~= "" and books_dir or _("not set"),
+          action = function() plugin:editServer() end },
+    }
+    if server ~= "" then
+        table.insert(rows, { label = _("Refresh catalogue"),
+                             value = T(_("%1 books"), Catalog:count()),
+                             action = function() plugin:refreshCatalogue() self:refresh() end })
+        table.insert(rows, { label = _("Update positions when the device wakes"), key = "refresh_on_wake" })
+    end
+    return rows
 end
 
 function SettingsScreen:hardcoverRows()
@@ -267,8 +384,9 @@ function SettingsScreen:build()
     add(LineWidget:new{ background = FAINT, dimen = Geom:new{ w = w, h = Size.line.thin } },
         Size.line.thin)
 
-    -- One column if it fits; otherwise (landscape) the groups are split
-    -- into two balanced columns rather than running off the bottom.
+    -- One column if it fits. Otherwise a landscape screen splits the groups
+    -- into two balanced columns, and a portrait one into pages: half-width
+    -- columns would cut every label short.
     local groups = self:groups()
     local function groupHeight(group)
         return header_h + #group[2] * (row_h + Size.line.thin)
@@ -277,7 +395,23 @@ function SettingsScreen:build()
     for _index, group in ipairs(groups) do total = total + groupHeight(group) end
     local room = h - y - tabs_h - tabs_margin
     local columns = { groups }
-    if total > room then
+    local pager_h = Dim.px(30)
+    self.page, self.pages = self.page or 1, 1
+    if total > room and w <= h then
+        local pages, current, used = {}, {}, 0
+        for _index, group in ipairs(groups) do
+            if #current > 0 and used + groupHeight(group) > room - pager_h then
+                table.insert(pages, current)
+                current, used = {}, 0
+            end
+            table.insert(current, group)
+            used = used + groupHeight(group)
+        end
+        table.insert(pages, current)
+        self.pages = #pages
+        self.page = math.min(self.page, self.pages)
+        columns = { pages[self.page] }
+    elseif total > room then
         local left, right, acc = {}, {}, 0
         for _index, group in ipairs(groups) do
             if acc + groupHeight(group) / 2 <= total / 2 then
@@ -322,9 +456,11 @@ function SettingsScreen:build()
     end
     add(row, col_h)
 
-    -- push the tabs to the bottom
-    local filler = h - y - tabs_h - tabs_margin
+    -- push the pager and the tabs to the bottom
+    local below = tabs_h + tabs_margin + (self.pages > 1 and pager_h or 0)
+    local filler = h - y - below
     if filler > 0 then add(VerticalSpan:new{ width = filler }, filler) end
+    if self.pages > 1 then add(self:pagerBand(pager_h, y), pager_h) end
     add(VerticalSpan:new{ width = tabs_margin }, tabs_margin)
 
     local tabs_y = y
@@ -333,11 +469,20 @@ function SettingsScreen:build()
     self:setContent(stack)
 end
 
+function SettingsScreen:turnPage(delta)
+    local page = self.page + delta
+    if page < 1 or page > self.pages then return end
+    self.page = page
+    self:refresh()
+end
+
 function SettingsScreen:rowBand(row, h, band_y, band_x, w)
     band_x = band_x or 0
     w = w or self.screen_w
     local right
-    if row.key ~= nil then
+    if row.on ~= nil then
+        right = toggle(row.on)
+    elseif row.key ~= nil then
         right = toggle(Settings:get(row.key))
     elseif row.chevron then
         right = text("›", REGULAR, 16, MUTED)

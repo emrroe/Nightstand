@@ -36,8 +36,19 @@ local Nightstand = WidgetContainer:extend{
 -- the way out.
 local shown_home = nil
 
+local SYNC_PLUGIN_NAMES = { cwasync = _("CWA Progress Sync"), kosync = _("Progress sync") }
+
 function Nightstand:init()
     self.ui.menu:registerToMainMenu(self)
+    local retired = require("setup").run()
+    if #retired > 0 then
+        local names = {}
+        for i, name in ipairs(retired) do names[i] = SYNC_PLUGIN_NAMES[name] or name end
+        UIManager:nextTick(function()
+            UIManager:askForRestart(T(_("Nightstand now keeps reading positions in sync itself, so %1 has been switched off. Restart KOReader to finish."),
+                                      table.concat(names, ", ")))
+        end)
+    end
     -- `name = "filemanager"` lives on the FileChooser, not on FileManager, so
     -- the absence of a document is what distinguishes the two hosts.
     if not self.ui.document and self.ui.registerPostInitCallback then
@@ -45,10 +56,34 @@ function Nightstand:init()
     end
 end
 
---- In the reader: stop the sync plugin from silently moving another
---- device's position backwards.
+-- in the reader: the open book's position, shared through the sync server
+
 function Nightstand:onReaderReady()
-    if self.ui.document then require("syncguard").attach(self.ui) end
+    if not self.ui.document or not require("syncserver").enabled() then return end
+    -- an old sync plugin still running until the restart keeps the job alone
+    if require("setup").otherSyncRunning(self.ui) then return end
+    self.sync = require("syncengine").new(self.ui)
+    self.sync:opened()
+end
+
+function Nightstand:onPageUpdate()
+    if self.sync then self.sync:pageTurned() end
+end
+
+function Nightstand:onNetworkConnected()
+    if self.sync then self.sync:connected() end
+end
+
+function Nightstand:onCloseDocument()
+    if self.sync then self.sync:leaving() end
+end
+
+function Nightstand:onSuspend()
+    if self.sync then self.sync:leaving() end
+end
+
+function Nightstand:onCloseWidget()
+    if self.sync then self.sync:stop() end
 end
 
 --- Nightstand's own settings screen.
@@ -132,8 +167,10 @@ function Nightstand:open()
 end
 
 --- Coming back from sleep: positions may have moved on another device.
---- Quietly skipped when offline; the next wake or refresh catches up.
+--- In a book the sync engine compares again; on Home the shelves' positions
+--- refresh. Quietly skipped when offline; the next wake or refresh catches up.
 function Nightstand:onResume()
+    if self.sync then return self.sync:woke() end
     if not Settings:get("refresh_on_wake") then return end
     UIManager:scheduleIn(3, function()
         local home = shown_home
@@ -174,6 +211,8 @@ function Nightstand:refreshInBackground(shelf, positions_only)
         Background.run(missing, function(entry) CoverCache:fetchRemote(entry.book_id, entry.cover_url) end,
                        { label = _("Covers"), redraw_every = 4 })
     end
+    -- a sync server that is switched off would cost a timeout per book
+    if not require("syncserver").reachable() then return end
     Background.run(shelf, function(entry) Progress:refreshEntry(entry) end, {
         label = _("Positions"),
         redraw_every = 6,

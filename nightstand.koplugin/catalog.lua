@@ -40,6 +40,7 @@ local function credentials()
     if user == "" or password == "" then return nil, nil end
     return user, password
 end
+Catalog.credentials = credentials
 
 --- One HTTP request against the configured server. Returns body or nil, err.
 function Catalog:request(method, path, body, content_type)

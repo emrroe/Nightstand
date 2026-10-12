@@ -1,5 +1,5 @@
 --[[--
-Reading positions, read back from CWA's KOSync endpoint.
+Reading positions, read back from the sync server.
 
 A position is keyed by KOReader's partial MD5 of the file, so the same book
 read on the Nova 2 and held here is one document. There is no bulk endpoint --
@@ -9,8 +9,6 @@ this is one request per book and belongs in an explicit refresh.
 
 local DataStorage = require("datastorage")
 local LuaSettings = require("luasettings")
-local Catalog = require("catalog")
-local rapidjson = require("rapidjson")
 local logger = require("logger")
 
 local Progress = { records = nil }
@@ -88,34 +86,14 @@ function Progress:choose(book_id, record)
     self:save()
 end
 
---- Ask the server where this document was left off.
-function Progress:fetch(checksum)
-    local body = Catalog:get("/kosync/syncs/progress/" .. checksum)
-    if not body then return nil end
-    local ok, data = pcall(rapidjson.decode, body)
-    if not ok or type(data) ~= "table" or type(data.percentage) ~= "number" then return nil end
-    local function str(v) return type(v) == "string" and v or nil end
-    return {
-        percentage = data.percentage,
-        progress = str(data.progress),
-        device = str(data.device),
-        device_id = str(data.device_id),
-        timestamp = type(data.timestamp) == "number" and data.timestamp or nil,
-        title = str(data.calibre_book_title),
-    }
+--- Ask the sync server where this document was left off.
+function Progress:fetch(document)
+    return (require("syncserver").get(document))
 end
 
---- Tell the server where `document` (a checksum) is, as this device.
+--- Tell the sync server where `document` (a checksum) is, as this device.
 function Progress:push(document, record)
-    local Device = require("device")
-    local body = rapidjson.encode({
-        document = document,
-        progress = record.progress,
-        percentage = record.percentage,
-        device = Device.model or "Nightstand",
-        device_id = G_reader_settings and G_reader_settings:readSetting("device_id") or "nightstand",
-    })
-    return Catalog:request("PUT", "/kosync/syncs/progress", body)
+    return require("syncserver").put(document, record)
 end
 
 --- The key a server-only book's position is kept under. CWA 4.0.7 and later
@@ -130,7 +108,9 @@ function Progress:refreshEntry(entry)
     self:load()
     local by_checksum = entry.checksum and self:fetch(entry.checksum)
     if by_checksum then self:remember(entry.checksum, by_checksum) end
-    local by_id = entry.book_id and self:fetch(tostring(entry.book_id))
+    -- only CWA also answers by its own book id
+    local by_id = entry.book_id and require("syncserver").current().kind == "cwa"
+                  and self:fetch(tostring(entry.book_id))
     if by_id then self:remember(Progress.bookKey(entry.book_id), by_id) end
     return by_checksum ~= nil or by_id ~= nil
 end
