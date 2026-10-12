@@ -336,9 +336,15 @@ function HomeScreen:topBar(h, band_y)
     }
 end
 
---- Fetch the catalogue again, then covers and positions in the background.
+--- Fetch the catalogue again, then covers and positions in the background;
+--- without a server, read the books folder again.
 function HomeScreen:refreshAll()
     if not self.plugin then return end
+    if Settings:get("server") == "" then
+        -- no server: look through the books folder again
+        require("availability"):invalidate()
+        return self:reload()
+    end
     require("net").whenOnline(function() self.plugin:refreshCatalogue() end)
 end
 

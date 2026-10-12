@@ -7,8 +7,10 @@ server-only books join the same list with `on_device = false`.
 
 local BookList = require("ui/widget/booklist")
 local DocSettings = require("docsettings")
+local lfs = require("libs/libkoreader-lfs")
 local Availability = require("availability")
 local Catalog = require("catalog")
+local EpubMeta = require("epubmeta")
 local Progress = require("progress")
 local ReadHistory = require("readhistory")
 
@@ -39,14 +41,26 @@ end
 function Books:entryFor(file, checksum)
     local info = BookList.getBookInfo(file)
     local props = propsFor(file)
+    -- what the book says about itself fills in what KOReader has not seen yet
+    local meta = EpubMeta.read(file) or {}
     local title = props and (props.display_title or props.title)
+    if not title or title == "" then title = meta.title end
     if not title or title == "" then title = baseName(file) end
+    local author = props and props.authors and props.authors ~= "" and props.authors or meta.author
+    local modified = lfs.attributes(file, "modification")
     local entry = {
         file = file,
         checksum = checksum,
         title = title,
         -- KOReader keeps several authors one per line
-        author = props and props.authors and props.authors:gsub("%s*\n%s*", ", ") or "",
+        author = author and author:gsub("%s*\n%s*", ", ") or "",
+        series = meta.series,
+        series_index = meta.series_index,
+        summary = meta.summary,
+        published = meta.published,
+        language = meta.language,
+        -- when the file arrived; a catalogue match replaces it with the server's date
+        added = modified and os.date("!%Y-%m-%dT%H:%M:%S+00:00", modified) or nil,
         pages = info and info.pages,
         percent = info and info.percent_finished,
         status = BookList.getBookStatus(file),
@@ -96,6 +110,7 @@ function Books:list(books_dir)
         table.insert(entries, entry)
         table.insert(locals, { key = norm(entry.title), entry = entry })
     end
+    EpubMeta.flush()
 
     -- Exact titles claim their files first; a file named "<title> <author>"
     -- is only claimed afterwards, and only when the author's surname is there.
@@ -145,7 +160,10 @@ function Books:list(books_dir)
             }
             table.insert(entries, entry)
         end
-        for _index, key in ipairs(CATALOGUE_FIELDS) do entry[key] = item[key] end
+        -- the server's details win, but what it lacks the book itself may know
+        for _index, key in ipairs(CATALOGUE_FIELDS) do
+            if item[key] ~= nil then entry[key] = item[key] end
+        end
         entry.added = item.updated
         if item.read_on_server and entry.status ~= "reading" then
             entry.status = "complete"
@@ -237,12 +255,16 @@ function Books:shelves(entries, skip)
         if x then return (a.last_read or 0) > (b.last_read or 0) end
         return by_added(a, b)
     end
+    -- without a server, "new" means newly arrived in the books folder
+    local serverless = require("settings"):get("server") == ""
     return {
         { label = _("Recently added"),
           books = pick(function(e)
-              return e.added ~= nil and not e.on_device and e.status ~= "complete" and not Books.started(e)
+              return e.added ~= nil and (serverless or not e.on_device)
+                     and e.status ~= "complete" and not Books.started(e)
           end, by_added),
-          empty = _("Nothing new on the server to download. Refresh to look again."),
+          empty = serverless and _("No books yet. Copy EPUB files into your books folder.")
+                              or _("Nothing new on the server to download. Refresh to look again."),
           see_all = { filter = "unread", sort = "added", descending = true } },
         { label = _("Ready on this device"),
           books = pick(function(e) return e.on_device and e.status ~= "complete" end, reading_first),

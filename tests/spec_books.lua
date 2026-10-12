@@ -241,6 +241,7 @@ T.describe("home shelves", function()
         end
     end)
     T.it("new on the server and ready here never overlap; the hero is on neither", function()
+        require("settings"):set("server", "https://books.example")
         local Books = require("books")
         local hero = { title = "hero", status = "reading", percent = 0.5, added = "2026-09", on_device = true }
         local list = { hero,
@@ -254,6 +255,42 @@ T.describe("home shelves", function()
         local shelves = Books:shelves(list, hero)
         T.eq(T.titles(shelves[1].books), { "new" })
         T.eq(T.titles(shelves[2].books), { "other", "local", "peeked" }, "under way first, then newest")
+    end)
+end)
+
+T.describe("books without a server", function()
+    T.it("an EPUB's own package gives title, authors, series, number and description", function()
+        local EpubMeta = require("epubmeta")
+        local calibre = EpubMeta.parse([[<package><metadata>
+            <dc:title>Edgedancer</dc:title><dc:creator>Brandon Sanderson</dc:creator>
+            <dc:description>&lt;p&gt;Lift &amp;amp; Wyndle&lt;/p&gt;</dc:description><dc:date>2016-10-04</dc:date>
+            <meta name="calibre:series" content="The Stormlight Archive"/>
+            <meta content="2.5" name="calibre:series_index"/></metadata></package>]])
+        T.eq(calibre.title, "Edgedancer")
+        T.eq(calibre.series, "The Stormlight Archive")
+        T.eq(calibre.series_index, 2.5)
+        T.eq(calibre.summary, "Lift & Wyndle")
+        T.eq(calibre.published, "2016-10-04")
+        local epub3 = EpubMeta.parse([[<metadata><dc:title>Two</dc:title>
+            <dc:creator>A</dc:creator><dc:creator>B</dc:creator>
+            <meta property="belongs-to-collection" id="c1">Saga</meta>
+            <meta refines="#c1" property="group-position">2</meta></metadata>]])
+        T.eq(epub3.author, "A, B")
+        T.eq(epub3.series, "Saga")
+        T.eq(epub3.series_index, 2)
+    end)
+    T.it("a book never opened still gets its real title and author, and a date added", function()
+        local dir = setup({ { "Real Title", "Some Author" } })
+        local entries = require("books"):list(dir)
+        T.eq(entries[1].title, "Real Title")
+        T.eq(entries[1].author, "Some Author")
+        T.ok(entries[1].added, "dated by when the file arrived")
+    end)
+    T.it("without a server, Recently added is the newest books in the folder", function()
+        local Books = require("books")
+        local shelves = Books:shelves({ { title = "local", status = "new", added = "2026-10-05", on_device = true } })
+        T.eq(T.titles(shelves[1].books), { "local" })
+        T.ok(shelves[1].empty:find("books folder"))
     end)
 end)
 
