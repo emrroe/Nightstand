@@ -6,11 +6,10 @@ not on this device are marked; everything else is a normal KOReader file.
 
 @module koplugin.Nightstand
 --]]--
-
-local InfoMessage = require("ui/widget/infomessage")
 local MultiInputDialog = require("ui/widget/multiinputdialog")
 local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
+local Dialogs = require("dialogs")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
 local Availability = require("availability")
 local Books = require("books")
@@ -103,21 +102,19 @@ function Nightstand:openDiscover(force)
     local data = Discover:load()
     -- fetched once and kept; the refresh button in Discover fetches anew
     if (not data or force) and NetworkMgr:isOnline() then
-        local working = InfoMessage:new{ text = _("Fetching recommendations from Hardcover…") }
-        UIManager:show(working)
-        UIManager:forceRePaint()
+        local working = Dialogs.working(_("Fetching recommendations from Hardcover…"))
         local current = Books:current(Books:list(Settings:booksDir()))
         local ok, err = Discover:refresh(current and current.title)
         if ok then Discover:markFinished(Books:list(Settings:booksDir())) end
         UIManager:close(working)
         if not ok and not data then
-            UIManager:show(InfoMessage:new{ text = T(_("Could not reach Hardcover.\n%1"), tostring(err)) })
+            Dialogs.note(T(_("Could not reach Hardcover.\n%1"), tostring(err)))
             return
         end
     end
     local DiscoverScreen = require("discoverscreen")
     if not Discover:load() then
-        UIManager:show(InfoMessage:new{ text = DiscoverScreen.emptyMessage() })
+        Dialogs.note(DiscoverScreen.emptyMessage())
         return
     end
     UIManager:show(DiscoverScreen:new{ plugin = self }, "ui")
@@ -138,6 +135,10 @@ end
 
 function Nightstand:openAsHome()
     if not Settings:get("replace_file_browser") then return end
+    local Welcome = require("welcomescreen")
+    if Welcome.needed() then
+        return UIManager:nextTick(function() UIManager:show(Welcome:new{ plugin = self }) end)
+    end
     if Settings:booksDir() == "" then return end
     UIManager:nextTick(function()
         self:open()
@@ -152,9 +153,7 @@ end
 
 function Nightstand:open()
     if Settings:booksDir() == "" then
-        UIManager:show(InfoMessage:new{
-            text = _("Set a books folder first, under Tools > Nightstand."),
-        })
+        Dialogs.note(_("Set a books folder first, under Tools > Nightstand."))
         return
     end
     -- a Home left open underneath (the file browser was created over it)
@@ -187,13 +186,11 @@ end
 --- Pull the CWA catalogue (quick, shown as busy), then fetch covers and
 --- reading positions in the background while the screens stay usable.
 function Nightstand:refreshCatalogue(touchmenu_instance)
-    local working = InfoMessage:new{ text = _("Refreshing catalogue…") }
-    UIManager:show(working)
-    UIManager:forceRePaint()
+    local working = Dialogs.working(_("Refreshing catalogue…"))
     local entries, err = Catalog:refresh()
     UIManager:close(working)
     if not entries then
-        UIManager:show(InfoMessage:new{ text = T(_("Could not reach the server.\n%1"), tostring(err)) })
+        Dialogs.note(T(_("Could not reach the server.\n%1"), tostring(err)))
         return
     end
     Availability:invalidate()
@@ -231,40 +228,39 @@ local function redrawWhileLoading(final)
 end
 Background.on_progress = redrawWhileLoading
 
-function Nightstand:editServer()
+--- The CWA server, its login, and the folder books go to. `on_saved` runs
+--- after Save (the welcome screen goes on from there).
+function Nightstand:editServer(on_saved)
     local dialog
     dialog = MultiInputDialog:new{
         title = _("Calibre-Web-Automated server"),
         fields = {
-            {
-                description = _("Server address"),
-                text = Settings:get("server"),
-                hint = "https://books.example.org",
-            },
-            {
-                description = _("Books folder on this device"),
-                text = Settings:get("books_dir"),
-                hint = "/mnt/onboard/Books",
-            },
+            { description = _("Server address"), text = Settings:get("server"), hint = "https://books.example.org" },
+            { description = _("Username"), text = Settings:get("username") },
+            { description = _("Password"), text = Settings:get("password"), text_type = "password" },
+            { description = _("Books folder on this device"), text = Settings:get("books_dir"),
+              hint = "/mnt/onboard/Books" },
         },
         buttons = {{
-            {
-                text = _("Cancel"),
-                id = "close",
-                callback = function() UIManager:close(dialog) end,
-            },
-            {
-                text = _("Save"),
-                callback = function()
-                    local fields = dialog:getFields()
-                    -- The CWA sync plugin appends its own path segment, so
-                    -- store the bare root and never a trailing slash.
-                    Settings:set("server", (fields[1] or ""):gsub("/+$", ""))
-                    Settings:set("books_dir", (fields[2] or ""):gsub("/+$", ""))
-                    Availability:invalidate()
-                    UIManager:close(dialog)
-                end,
-            },
+            { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
+            { text = _("Save"), callback = function()
+                local fields = dialog:getFields()
+                -- the bare root, never a trailing slash: paths are added to it
+                Settings:set("server", (fields[1] or ""):gsub("/+$", ""))
+                Settings:set("username", fields[2] or "")
+                Settings:set("password", fields[3] or "")
+                local dir = (fields[4] or ""):gsub("/+$", "")
+                -- a new server user without a folder gets one next to KOReader's home
+                if dir == "" and fields[1] ~= "" then
+                    local home = G_reader_settings:readSetting("home_dir") or require("device").home_dir
+                    dir = home and (home .. "/Books") or ""
+                    if dir ~= "" then require("util").makePath(dir) end
+                end
+                Settings:set("books_dir", dir)
+                Availability:invalidate()
+                UIManager:close(dialog)
+                if on_saved then on_saved() end
+            end },
         }},
     }
     UIManager:show(dialog)

@@ -18,12 +18,12 @@ local Size = require("ui/size")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
-local ConfirmBox = require("ui/widget/confirmbox")
 local NetworkMgr = require("ui/network/manager")
 local Availability = require("availability")
 local Catalog = require("catalog")
 local Hardcover = require("hardcover")
 local HardcoverLink = require("hardcoverlink")
+local Dialogs = require("dialogs")
 local SyncServer = require("syncserver")
 local Updater = require("updater")
 local Vendors = require("vendors")
@@ -124,7 +124,6 @@ end
 
 --- Sign in to (or create an account on) the public or another sync server.
 function SettingsScreen:syncAccount(kind)
-    local InfoMessage = require("ui/widget/infomessage")
     local MultiInputDialog = require("ui/widget/multiinputdialog")
     local fields = {}
     if kind == "custom" then
@@ -148,18 +147,15 @@ function SettingsScreen:syncAccount(kind)
                 ok, result = SyncServer.signIn(url, user, password)
             end
             if not ok then
-                UIManager:show(InfoMessage:new{ text = T(_("That did not work: %1"), tostring(result)) })
+                Dialogs.note(T(_("That did not work: %1"), tostring(result)))
                 return
             end
             if kind == "custom" then Settings:set("sync_url", url) end
             Settings:set("sync_username", user)
             Settings:set("sync_userkey", result)
             self:refresh()
-            UIManager:show(InfoMessage:new{
-                text = create and _("Account created. Reading positions now sync.")
-                               or _("Signed in. Reading positions now sync."),
-                timeout = 3,
-            })
+            Dialogs.note(create and _("Account created. Reading positions now sync.")
+                                or _("Signed in. Reading positions now sync."))
         end)
     end
     dialog = MultiInputDialog:new{
@@ -186,52 +182,44 @@ end
 
 --- Look for a newer release, and offer to install it.
 function SettingsScreen:checkForUpdates()
-    local InfoMessage = require("ui/widget/infomessage")
     if Updater.isDevelopmentCopy() then
-        UIManager:show(InfoMessage:new{
-            text = _("This copy of Nightstand runs from a development checkout. Update it with git instead."),
-        })
+        Dialogs.note(_("This copy of Nightstand runs from a development checkout. Update it with git instead."))
         return
     end
     require("net").whenOnline(function()
-        local working = InfoMessage:new{ text = _("Checking for updates…") }
-        UIManager:show(working)
-        UIManager:forceRePaint()
+        local working = Dialogs.working(_("Checking for updates…"))
         local release, err = Updater.latest()
         UIManager:close(working)
         if not release then
-            UIManager:show(InfoMessage:new{ text = T(_("Could not check for updates.\n%1"), tostring(err)) })
+            Dialogs.note(T(_("Could not check for updates.\n%1"), tostring(err)))
             return
         end
         local current = Updater.currentVersion()
         if not Updater.newer(release.version, current) then
             Settings:delete("update_available")
             self:refresh()
-            UIManager:show(InfoMessage:new{ text = T(_("Nightstand %1 is the latest version."), current) })
+            Dialogs.note(T(_("Nightstand %1 is the latest version."), current))
             return
         end
         Settings:set("update_available", release.version)
         self:refresh()
         local notes = release.notes:gsub("\r", "")
         if #notes > 700 then notes = notes:sub(1, 700) .. "…" end
-        UIManager:show(require("ui/widget/confirmbox"):new{
-            text = T(_("Nightstand %1 is available. You have %2.\n\n%3\n\nInstall it now? KOReader restarts afterwards."),
-                     release.version, current, notes),
+        require("dialogs").confirm{
+            title = T(_("Nightstand %1 is available"), release.version),
+            text = T(_("You have %1.\n\n%2\n\nInstall it now? KOReader restarts afterwards."), current, notes),
             ok_text = _("Update"),
             ok_callback = function() self:installUpdate(release) end,
-        })
+        }
     end)
 end
 
 function SettingsScreen:installUpdate(release)
-    local InfoMessage = require("ui/widget/infomessage")
-    local working = InfoMessage:new{ text = T(_("Installing Nightstand %1…"), release.version) }
-    UIManager:show(working)
-    UIManager:forceRePaint()
+    local working = Dialogs.working(T(_("Installing Nightstand %1…"), release.version))
     local ok, err = Updater.install(release)
     UIManager:close(working)
     if not ok then
-        UIManager:show(InfoMessage:new{ text = T(_("The update failed; nothing was changed.\n%1"), tostring(err)) })
+        Dialogs.note(T(_("The update failed; nothing was changed.\n%1"), tostring(err)))
         return
     end
     Settings:delete("update_available")
@@ -271,30 +259,17 @@ function SettingsScreen:hardcoverRows()
 end
 
 function SettingsScreen:chooseVendor()
-    local ButtonDialog = require("ui/widget/buttondialog")
     local current = Vendors.current().id
-    local dialog
-    local buttons = {}
+    local items = {}
     for _index, vendor in ipairs(Vendors.all()) do
-        table.insert(buttons, {{
-            text = (vendor.id == current and "✓  " or "") .. vendor.name,
-            align = "left",
-            callback = function()
-                UIManager:close(dialog)
-                Settings:set("vendor", vendor.id)
-                self:refresh()
-            end,
-        }})
+        local id = vendor.id
+        table.insert(items, { text = vendor.name, checked = id == current, callback = function()
+            Settings:set("vendor", id)
+            self:refresh()
+        end })
     end
-    table.insert(buttons, {{
-        text = _("Add your own…"), align = "left",
-        callback = function()
-            UIManager:close(dialog)
-            self:addVendor()
-        end,
-    }})
-    dialog = ButtonDialog:new{ title = _("Find books on"), title_align = "center", buttons = buttons }
-    UIManager:show(dialog)
+    table.insert(items, { text = _("Add your own…"), separated = true, callback = function() self:addVendor() end })
+    require("dialogs").menu{ title = _("Find books on"), items = items }
 end
 
 function SettingsScreen:addVendor()
@@ -347,8 +322,9 @@ function SettingsScreen:openLink()
 end
 
 function SettingsScreen:confirmUnlink()
-    UIManager:show(ConfirmBox:new{
-        text = T(_("Disconnect Hardcover account @%1 from this device?"), Hardcover:username() or "?"),
+    require("dialogs").confirm{
+        title = _("Disconnect Hardcover?"),
+        text = T(_("The account @%1 is disconnected from this device; your recommendations here are cleared."), Hardcover:username() or "?"),
         ok_text = _("Disconnect"),
         ok_callback = function()
             -- offline, the token is only forgotten; it lapses on Hardcover's side
@@ -357,7 +333,7 @@ function SettingsScreen:confirmUnlink()
             require("discover"):clear()
             self:refresh()
         end,
-    })
+    }
 end
 
 function SettingsScreen:build()

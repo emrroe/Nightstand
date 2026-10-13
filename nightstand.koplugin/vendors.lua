@@ -73,22 +73,15 @@ function Vendors.show(book)
     local Screen = Device.screen
     local size = math.floor(math.min(Screen:getWidth(), Screen:getHeight()) * 0.6)
     if Device:canOpenLink() then
-        local ButtonDialog = require("ui/widget/buttondialog")
-        local dialog
-        dialog = ButtonDialog:new{
+        require("dialogs").menu{
             title = T(_("Find \"%1\" on %2"), book.title, vendor.name),
-            buttons = {
-                {{ text = _("Open in browser"), callback = function()
-                    UIManager:close(dialog)
-                    Device:openLink(url)
-                end }},
-                {{ text = _("Show QR code"), callback = function()
-                    UIManager:close(dialog)
+            items = {
+                { icon = "open", text = _("Open in browser"), callback = function() Device:openLink(url) end },
+                { icon = "search", text = _("Show QR code"), callback = function()
                     UIManager:show(QRMessage:new{ text = url, width = size, height = size })
-                end }},
+                end },
             },
         }
-        UIManager:show(dialog)
     else
         UIManager:show(QRMessage:new{ text = url, width = size, height = size })
     end

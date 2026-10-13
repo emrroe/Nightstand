@@ -218,10 +218,19 @@ end
 
 function LibraryScreen:content(h, band_y)
     if #self.items == 0 then
-        return CenterContainer:new{
-            dimen = Geom:new{ w = self.screen_w, h = h },
-            text(_("Nothing matches this filter."), REGULAR, 14, MUTED),
-        }
+        if self.query then
+            return self:emptyState(self.screen_w, h, band_y, "search",
+                T(_("No books match “%1”."), self.query), _("Back"), function() self:widen() end)
+        end
+        if self.filter ~= "all" then
+            return self:emptyState(self.screen_w, h, band_y, "books",
+                _("No books match this filter."), _("Show all books"), function() self:setFilter("all") end)
+        end
+        return self:emptyState(self.screen_w, h, band_y, "books",
+            Settings:get("server") ~= "" and _("No books yet. Refresh the catalogue to fetch your library.")
+                                         or _("No books yet. Copy EPUB files into your books folder."),
+            Settings:get("server") ~= "" and _("Refresh") or nil,
+            function() if self.plugin then self.plugin:refreshCatalogue() end self:reload() end)
     end
     local first = (self.page - 1) * self.per_page + 1
     local zone = function(...) self:zone(...) end
@@ -277,7 +286,8 @@ function LibraryScreen:rowSpec(item)
     if year then table.insert(facts, year) end
     if not item.on_device then table.insert(facts, _("not downloaded")) end
     return { cover = item, cover_opts = { no_tag = true }, title = item.title,
-             author = item.author, facts = facts, blurb = item.summary }
+             author = item.author, facts = facts, blurb = item.summary,
+             progress = Books.started(item) and item.percent or nil }
 end
 
 function LibraryScreen:turnPage(delta)

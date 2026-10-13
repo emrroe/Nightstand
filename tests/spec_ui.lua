@@ -155,7 +155,7 @@ local recorder = {}
 local function plugin()
     recorder.calls = {}
     local p = {}
-    for _, name in ipairs({ "openTab", "openSettings", "openLibrary", "editServer",
+    for _, name in ipairs({ "openTab", "openSettings", "openLibrary", "editServer", "openAsHome",
                             "refreshCatalogue", "openKoreaderMenu" }) do
         p[name] = function(_, ...) table.insert(recorder.calls, name) end
     end
@@ -444,9 +444,7 @@ T.describe(SIZE .. " › book details and menus", function()
     end
     local function labels(dialog)
         local out = {}
-        for _, row in ipairs(dialog.buttons) do
-            for _, b in ipairs(row) do table.insert(out, b.text) end
-        end
+        for _, item in ipairs(dialog.items) do table.insert(out, item.text) end
         return table.concat(out, " | ")
     end
     T.it("a Library book shows its details with a cover, and every book has the same menu", function()
@@ -529,6 +527,30 @@ T.describe(SIZE .. " › book details and menus", function()
         for _, row in ipairs(sheet.buttons) do for _, b in ipairs(row) do table.insert(text, b.text) end end
         text = table.concat(text, " | ")
         T.ok(text:find("Want to read") and text:find("Mark as read"), text)
+    end)
+end)
+
+T.describe(SIZE .. " › welcome", function()
+    T.it("only a reader with neither server nor books folder is welcomed, once", function()
+        local Settings = require("settings")
+        Settings:set("server", "")
+        Settings:set("books_dir", "")
+        local Welcome = require("welcomescreen")
+        T.ok(Welcome.needed())
+        local screen = Welcome:new{ plugin = plugin() }
+        paint(screen, "welcome: where are the books")
+        checkZones(screen, "welcome")
+        screen:next()
+        paint(screen, "welcome: Hardcover")
+        checkZones(screen, "welcome step 2")
+        local close = UIManager.close
+        UIManager.close = function() end
+        screen:finish()
+        UIManager.close = close
+        T.ok(not Welcome.needed(), "not again")
+        Settings:delete("welcomed")
+        Settings:set("server", "https://books.example")
+        T.ok(not Welcome.needed(), "an existing setup is never welcomed")
     end)
 end)
 

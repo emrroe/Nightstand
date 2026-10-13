@@ -11,6 +11,7 @@ local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TopContainer = require("ui/widget/container/topcontainer")
 local VerticalGroup = require("ui/widget/verticalgroup")
+local VerticalSpan = require("ui/widget/verticalspan")
 local CoverTile = require("covertile")
 local Dim = require("dim")
 local W = require("widgets")
@@ -90,6 +91,11 @@ function Rows.row(spec, w, h, gutter)
         local facts = table.concat(kept, "\u{00A0}·  ")
         put(box(facts, REGULAR, 11, BLACK, text_w,
                 math.min(2, fits(facts, REGULAR, 11), lines(REGULAR, 11))))
+    end
+    if spec.progress and room > Dim.px(10) then
+        put(VerticalSpan:new{ width = Dim.pad.small })
+        put(W.progress(math.floor(text_w * 0.6), spec.progress, Dim.px(4)))
+        put(VerticalSpan:new{ width = Dim.pad.small })
     end
     if spec.blurb and spec.blurb ~= "" and lines(REGULAR, 12) >= 1 then
         put(box(spec.blurb, REGULAR, 12, MUTED, text_w, lines(REGULAR, 12)))

@@ -9,7 +9,6 @@ or by tapping the right or left half of the text, like a book. Closes with
 Back, a tap outside it, or whichever button closes it.
 --]]--
 
-local ButtonTable = require("ui/widget/buttontable")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
@@ -36,6 +35,8 @@ local BookSheet = InputContainer:extend{
     title = nil,
     author = nil,
     facts = nil,        -- short lines under the author
+    progress = nil,     -- how far along (0..1), drawn as a bar under fact `progress_after`
+    progress_after = nil,
     description = nil,
     buttons = nil,      -- rows of { text, callback }; a Close row is added
 }
@@ -104,25 +105,46 @@ function BookSheet:head()
     wrapped(self.title or "", W.BOLD, 17, W.BLACK, 3)
     if self.author and self.author ~= "" then wrapped(self.author, W.REGULAR, 12.5, W.MUTED, 2) end
     put(VerticalSpan:new{ width = Dim.pad.default })
-    for _index, fact in ipairs(self.facts or {}) do wrapped(fact, W.REGULAR, 11.5, W.BLACK, 2) end
+    for index, fact in ipairs(self.facts or {}) do
+        wrapped(fact, W.REGULAR, 11.5, W.BLACK, 2)
+        -- how far along, as a bar under the line that says so
+        if index == self.progress_after and self.progress then
+            put(VerticalSpan:new{ width = Dim.pad.small })
+            put(W.progress(math.floor(self.text_w * 0.8), self.progress, Dim.px(4)))
+            put(VerticalSpan:new{ width = Dim.pad.small })
+        end
+    end
     return head, h
 end
 
+--- The buttons: the first one -- the main action -- filled, the rest
+--- outlined, rows of equal-width buttons, and Close as a quiet link under
+--- them. `self.targets` records each for taps.
 function BookSheet:buttonTable()
-    local rows = {}
+    local Dialogs = require("dialogs")
+    local group = VerticalGroup:new{ align = "center" }
+    self.targets = {}
+    local gap = Dim.px(10)
+    local first = true
     for _index, row in ipairs(self.buttons or {}) do
-        local out = {}
-        for _index2, button in ipairs(row) do
-            local callback = button.callback
-            table.insert(out, { text = button.text, callback = function()
-                UIManager:close(self)
-                callback()
-            end })
+        local n = #row
+        local bw = math.floor((self.inner_w - (n - 1) * gap) / n)
+        local line = HorizontalGroup:new{ align = "center" }
+        for index, button in ipairs(row) do
+            if index > 1 then table.insert(line, W.hspan(gap)) end
+            local widget = Dialogs.button(button.text, first, bw)
+            first = false
+            table.insert(line, widget)
+            table.insert(self.targets, { widget = widget, callback = button.callback, closes = true })
         end
-        table.insert(rows, out)
+        table.insert(group, line)
+        table.insert(group, VerticalSpan:new{ width = Dim.pad.default })
     end
-    table.insert(rows, { { text = _("Close"), callback = function() self:onClose() end } })
-    return ButtonTable:new{ width = self.inner_w, buttons = rows, zero_sep = true, show_parent = self }
+    local close = FrameContainer:new{ bordersize = 0, padding = Dim.pad.small, margin = 0,
+        W.text(_("Close"), W.REGULAR, 12.5, W.MUTED) }
+    table.insert(group, close)
+    table.insert(self.targets, { widget = close, callback = function() end, closes = true })
+    return group
 end
 
 --- Cut the description into pages once: lines beside the cover (as many as
@@ -206,7 +228,8 @@ function BookSheet:render()
     if #self.pages > 1 then table.insert(column, self:indicator()) end
     table.insert(column, VerticalSpan:new{ width = self.pad })
     self.button_table = self:buttonTable()
-    table.insert(column, self.button_table)
+    table.insert(column, CenterContainer:new{
+        dimen = Geom:new{ w = self.inner_w, h = self.button_table:getSize().h }, self.button_table })
 
     self.frame = FrameContainer:new{
         background = W.WHITE, bordersize = Size.border.window, radius = Size.radius.window,
@@ -240,13 +263,21 @@ function BookSheet:turn(delta)
     UIManager:setDirty(self, function() return "ui", self.frame.dimen end)
 end
 
---- A tap outside closes; a tap on the text turns the page by which half it
---- lands on. Taps on the buttons never get here.
+--- A tap outside closes; a tap on a button does what it says; a tap on the
+--- text turns the page by which half it lands on.
 function BookSheet:onTap(_arg, ges)
     local frame = self.frame.dimen
     if not frame or ges.pos:notIntersectWith(frame) then return self:onClose() end
-    local buttons = self.button_table and self.button_table.dimen
-    if #self.pages > 1 and (not buttons or ges.pos.y < buttons.y) then
+    for _index, target in ipairs(self.targets or {}) do
+        local d = target.widget.dimen
+        if d and ges.pos:intersectWith(d) then
+            UIManager:close(self)
+            target.callback()
+            return true
+        end
+    end
+    local first_button = self.targets and self.targets[1] and self.targets[1].widget.dimen
+    if #self.pages > 1 and (not first_button or ges.pos.y < first_button.y) then
         self:turn(ges.pos.x >= frame.x + frame.w / 2 and 1 or -1)
     end
     return true

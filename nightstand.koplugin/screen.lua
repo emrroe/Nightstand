@@ -8,7 +8,6 @@ supply `load` (gather data) and `build` (lay out and register zones), and set
 `tab_id` to light up their tab.
 --]]--
 
-local ButtonDialog = require("ui/widget/buttondialog")
 local Device = require("device")
 local Geom = require("ui/geometry")
 local GestureRange = require("ui/gesturerange")
@@ -219,24 +218,53 @@ function NightstandScreen:pagerBand(h, band_y, middle, on_middle)
     return CenterContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, row }
 end
 
---- A menu of options with the current one ticked (`mark` is added after it).
-function NightstandScreen.menu(title, list, current, on_pick, mark)
-    local buttons = {}
-    local dialog
-    for _index, spec in ipairs(list) do
-        local label = spec.label
-        if spec.id == current then label = "✓  " .. label .. (mark or "") end
-        table.insert(buttons, {{
-            text = label,
-            align = "left",
-            callback = function()
-                UIManager:close(dialog)
-                on_pick(spec)
-            end,
-        }})
+--- An empty or offline state: an icon, a sentence or two, and a button
+--- when there is something useful to do about it. `h` is the height it
+--- centres in; `band_y` where that starts on screen.
+function NightstandScreen:emptyState(w, h, band_y, icon, message, action_text, action)
+    local TextBoxWidget = require("ui/widget/textboxwidget")
+    local VerticalSpan = require("ui/widget/verticalspan")
+    local text_w = math.min(w - 4 * self.gutter, Dim.px(320))
+    local column = VerticalGroup:new{ align = "center" }
+    local column_h = 0
+    local function put(widget)
+        table.insert(column, widget)
+        column_h = column_h + widget:getSize().h
     end
-    dialog = ButtonDialog:new{ title = title, title_align = "center", buttons = buttons }
-    UIManager:show(dialog)
+    if icon and h >= Dim.px(150) then
+        put(W.icon(icon, 28))
+        put(VerticalSpan:new{ width = Dim.pad.large })
+    end
+    put(TextBoxWidget:new{ text = message, face = Dim.face(W.REGULAR, 13), fgcolor = W.MUTED,
+                           width = text_w, alignment = "center" })
+    local button
+    if action_text and action then
+        put(VerticalSpan:new{ width = Dim.pad.large })
+        button = require("dialogs").button(action_text, false, math.min(text_w, Dim.px(200)))
+        put(button)
+    end
+    if button then
+        -- the button's place: centred, at the foot of the centred column
+        local bw, bh = button:getSize().w, button:getSize().h
+        local top = band_y + math.floor((h - column_h) / 2)
+        self:zone(math.floor((w - bw) / 2), top + column_h - bh, bw, bh, action)
+    end
+    return CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, column }
+end
+
+--- A menu of options with the current one ticked (`mark` is added after it,
+--- e.g. the sort direction).
+function NightstandScreen.menu(title, list, current, on_pick, mark)
+    local items = {}
+    for _index, spec in ipairs(list) do
+        local chosen = spec.id == current
+        table.insert(items, {
+            text = spec.label .. (chosen and mark or ""),
+            checked = chosen,
+            callback = function() on_pick(spec) end,
+        })
+    end
+    require("dialogs").menu{ title = title, items = items }
 end
 
 NightstandScreen.VIEWS = {

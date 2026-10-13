@@ -128,9 +128,12 @@ function SyncEngine:ask(remote, here)
     local device = remote.device or _("Another device")
     local pct = function(p) return math.floor(p * 100 + 0.5) end
     local at = when(remote.timestamp)
-    UIManager:show(require("ui/widget/confirmbox"):new{
-        text = T(_("%1 is at %2% in this book%3. This device is at %4%.\n\nGo to where %1 is, or keep reading here?"),
+    require("dialogs").confirm{
+        title = T(_("%1 is somewhere else in this book"), device),
+        text = T(_("%1 is at %2%%3. This device is at %4%. Go to where %1 is, or keep reading here?"),
                  device, pct(remote.percentage), at and (" (" .. at .. ")") or "", pct(here.percentage)),
+        -- only an answer closes it: a stray tap must not decide
+        dismissable = false,
         ok_text = T(_("Go to %1"), device),
         cancel_text = _("Keep this one"),
         ok_callback = function()
@@ -145,7 +148,7 @@ function SyncEngine:ask(remote, here)
             self.dirty = true
             self:settle()
         end,
-    })
+    }
 end
 
 --- Save this device's position, if it has been compared and has moved.

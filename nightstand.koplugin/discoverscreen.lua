@@ -17,6 +17,7 @@ local Size = require("ui/size")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local TopContainer = require("ui/widget/container/topcontainer")
 local UIManager = require("ui/uimanager")
+local Dialogs = require("dialogs")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
 local Background = require("background")
@@ -206,14 +207,13 @@ end
 
 function DiscoverScreen:listBand(h, band_y)
     if #self.entries == 0 then
-        local message = self.list == "want"
-            and _("Nothing on your Want to read list yet. Tap a book and choose Want to read.")
-             or _("Nothing here yet.")
-        return CenterContainer:new{
-            dimen = Geom:new{ w = self.screen_w, h = h },
-            TextBoxWidget:new{ text = message, face = Dim.face(REGULAR, 14), fgcolor = MUTED,
-                               width = self.screen_w - 4 * self.gutter, alignment = "center" },
-        }
+        if self.list == "want" then
+            return self:emptyState(self.screen_w, h, band_y, "bookmark-on",
+                _("Nothing on your Want to read list yet. Tap a book and choose Want to read."),
+                _("Back to Discover"), function() self:showList(self.previous or "recs") end)
+        end
+        return self:emptyState(self.screen_w, h, band_y, "tab-discover-on",
+            _("No suggestions here yet."), _("Refresh"), function() self:fetchAgain() end)
     end
     local first = (self.page - 1) * self.per_page + 1
     local tap = function(entry) self:openBook(entry) end
@@ -315,20 +315,17 @@ end
 
 function DiscoverScreen:fetchAgain()
     local NetworkMgr = require("ui/network/manager")
-    local InfoMessage = require("ui/widget/infomessage")
     if not NetworkMgr:isOnline() then
-        UIManager:show(InfoMessage:new{ text = _("Not connected. Showing what was fetched last time."), timeout = 3 })
+        Dialogs.note(_("Not connected. Showing what was fetched last time."))
         return
     end
-    local working = InfoMessage:new{ text = _("Fetching recommendations from Hardcover…") }
-    UIManager:show(working)
-    UIManager:forceRePaint()
+    local working = Dialogs.working(_("Fetching recommendations from Hardcover…"))
     local current = Books:current(self.library)
     local ok, err = Discover:refresh(current and current.title)
     if ok then Discover:markFinished(self.library) end
     UIManager:close(working)
     if not ok then
-        UIManager:show(InfoMessage:new{ text = T(_("Could not reach Hardcover.\n%1"), tostring(err)) })
+        Dialogs.note(T(_("Could not reach Hardcover.\n%1"), tostring(err)))
         return
     end
     self:reload()

@@ -272,25 +272,33 @@ local function wrapped(str, face, size, colour, width, most)
     }
 end
 
---- A shelf with nothing on it keeps its place, and says why it is empty.
+--- A shelf with nothing on it keeps its place, says why it is empty, and
+--- offers what helps: a refresh for the server's new books, the Library for
+--- books to download.
 function HomeScreen:emptyBand(shelf, h, band_y)
     local cover_h = W.coverHeight(self.strip_cover_w)
     local label_h = self:labelHeight()
     local inner_w = self.screen_w - 2 * self.gutter
     local top = band_y + math.floor((h - (label_h + Dim.pad.default + cover_h)) / 2)
+    local box_y = top + label_h + Dim.pad.default
+    local action_text, action
+    if shelf.see_all and shelf.see_all.filter == "device" then
+        action_text, action = _("Open Library"), function() if self.plugin then self.plugin:openTab("library") end end
+    elseif Settings:get("server") ~= "" then
+        action_text, action = _("Refresh"), function() self:refreshAll() end
+    end
+    local state = self:emptyState(inner_w - 2 * Size.border.thin, cover_h - 2 * Size.border.thin,
+                                  box_y, nil, shelf.empty or "", action_text,
+                                  action and function() action() end)
+    -- the button's zone was placed for a full-width box; shift it by the gutter
+    local last = self.tap_zones[#self.tap_zones]
+    if action and last then last.rect.x = last.rect.x + self.gutter end
     local inner = VerticalGroup:new{ align = "left" }
     table.insert(inner, self:shelfHeader(shelf, top))
     table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
     table.insert(inner, FrameContainer:new{
-        bordersize = Size.border.thin, color = W.FAINT, radius = Dim.px(4),
-        padding = 0, margin = 0,
-        CenterContainer:new{
-            dimen = Geom:new{ w = inner_w - 2 * Size.border.thin, h = cover_h - 2 * Size.border.thin },
-            TextBoxWidget:new{
-                text = shelf.empty or "", face = Dim.face(REGULAR, 12), fgcolor = MUTED,
-                width = math.floor(inner_w * 0.8), alignment = "center",
-            },
-        },
+        bordersize = Size.border.thin, color = W.FAINT, radius = Dim.px(6),
+        padding = 0, margin = 0, state,
     })
     return band(self.screen_w, h, self.gutter, inner)
 end
@@ -471,7 +479,7 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
     if more then
         local size = more:getSize()
         self:zone(meta_x, top + more_offset, size.w, size.h,
-                  function() self:showBlurb(entry.title, entry.summary) end)
+                  function() self:showDetails(entry) end)
     end
     -- the book being read opens at once; a suggestion shows its details first
     self:zone(0, band_y, self.screen_w, h, function()
@@ -541,20 +549,9 @@ function HomeScreen:onClose()
     if back_to_exit == "always" then
         quit()
     elseif back_to_exit == "prompt" then
-        UIManager:show(require("ui/widget/confirmbox"):new{
-            text = _("Exit KOReader?"),
-            ok_text = _("Exit"),
-            ok_callback = quit,
-        })
+        require("dialogs").confirm{ title = _("Exit KOReader?"), ok_text = _("Exit"), ok_callback = quit }
     end
     return true
-end
-
-function HomeScreen:showBlurb(title, summary)
-    UIManager:show(require("ui/widget/textviewer"):new{
-        title = title,
-        text = summary,
-    })
 end
 
 return HomeScreen
