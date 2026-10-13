@@ -2,7 +2,7 @@
 Nightstand's dialogs, in its own look rather than KOReader's: rounded white
 cards in the same type and greys as the screens.
 
-- `menu`: a card near the bottom, an optional book at its top, options with
+- `menu`: a card in the middle, an optional book at its top, options with
   icons; tapping outside or Back closes it.
 - `confirm`: a short question, an explanation, a quiet button and a filled
   one for the main choice.
@@ -59,7 +59,6 @@ end
 -- outside it closes.
 local Card = InputContainer:extend{
     content = nil,
-    at_bottom = false,
     targets = nil,
     dismissable = true,
     on_dismiss = nil,
@@ -68,10 +67,7 @@ local Card = InputContainer:extend{
 function Card:init()
     local sw, sh = Screen:getWidth(), Screen:getHeight()
     self.frame = card(self.content)
-    -- a bottom card keeps clear of the tab bar
-    local lift = self.at_bottom and Dim.px(64) or 0
-    local box = self.at_bottom and BottomContainer or CenterContainer
-    self[1] = box:new{ dimen = Geom:new{ w = sw, h = sh - lift }, self.frame }
+    self[1] = CenterContainer:new{ dimen = Geom:new{ w = sw, h = sh }, self.frame }
     self.key_events = { Close = { { Device.input.group.Back } } }
     self.ges_events = {
         Tap = { GestureRange:new{ ges = "tap", range = Geom:new{ x = 0, y = 0, w = sw, h = sh } } },
@@ -109,7 +105,7 @@ function Card:onCloseWidget()
     UIManager:setDirty(nil, function() return "ui", self.frame.dimen end)
 end
 
---- Options in a card near the bottom. `opts.book` (an entry) puts its small
+--- Options in a card in the middle of the screen. `opts.book` (an entry) puts its small
 --- cover, title, author and `opts.subtitle` at the top; otherwise
 --- `opts.title`. Each item: `{ icon, text, callback, separated, checked }`.
 function Dialogs.menu(opts)
@@ -159,7 +155,7 @@ function Dialogs.menu(opts)
         table.insert(targets, { widget = row, callback = item.callback })
     end
     table.insert(group, VerticalSpan:new{ width = Dim.pad.small })
-    local dialog = Card:new{ content = group, at_bottom = true, targets = targets, items = opts.items }
+    local dialog = Card:new{ content = group, targets = targets, items = opts.items }
     UIManager:show(dialog)
     return dialog
 end
