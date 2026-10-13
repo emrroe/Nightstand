@@ -37,8 +37,12 @@ end
 --- Open `entry` from `screen`, which closes once the reader takes over.
 function BookActions.open(screen, entry)
     if entry.on_device and entry.file then
-        -- open where Home said the book is: another device's newer position
-        if entry.remote then require("syncguard").seed(entry.file, entry.remote, true) end
+        -- open where Home said the book is: another device's newer position,
+        -- unless this device read on unsynced; then the reader asks which to keep
+        local SyncGuard = require("syncguard")
+        if entry.remote and not SyncGuard.unsynced(entry.file) then
+            SyncGuard.seed(entry.file, entry.remote, true)
+        end
         return showReader(entry.file)
     end
     if not Net.mayDownload() then

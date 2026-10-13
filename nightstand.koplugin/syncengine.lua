@@ -26,7 +26,7 @@ SyncEngine.__index = SyncEngine
 
 local IDLE_SAVE = 10   -- seconds without a page turn before saving
 local RETRY = 30       -- seconds between tries while the server cannot be reached
-local SAME_PLACE = 0.002  -- positions closer than this count as one
+local SAME_PLACE = require("syncguard").SAME_PLACE
 
 local function now() return os.time() end
 
@@ -87,6 +87,12 @@ function SyncEngine:seen(remote)
     return seen ~= nil and remote.timestamp ~= nil and remote.timestamp <= seen
 end
 
+--- The server knows this device's place as `percentage`: Home may then open
+--- the book at a newer one from elsewhere without asking.
+function SyncEngine:markSynced(percentage)
+    if self.ui.doc_settings then self.ui.doc_settings:saveSetting("nightstand_synced", percentage) end
+end
+
 function SyncEngine:acknowledge(remote)
     if self.ui.doc_settings then
         self.ui.doc_settings:saveSetting("nightstand_sync_seen", remote.timestamp or self.clock())
@@ -104,8 +110,11 @@ function SyncEngine:check()
         return
     end
     local here = self:here()
-    if not remote or remote.device_id == deviceId() or self:seen(remote)
-       or remote.progress == here.progress or math.abs(remote.percentage - here.percentage) < SAME_PLACE then
+    if remote and (remote.progress == here.progress or math.abs(remote.percentage - here.percentage) < SAME_PLACE) then
+        self:markSynced(here.percentage)
+        return self:settle()
+    end
+    if not remote or (remote.device_id ~= nil and remote.device_id == deviceId()) or self:seen(remote) then
         return self:settle()
     end
     self:ask(remote, here)
@@ -140,6 +149,7 @@ function SyncEngine:ask(remote, here)
             self.asking = false
             self:acknowledge(remote)
             self.checked, self.dirty = true, false
+            self:markSynced(remote.percentage)
             if remote.progress then self:goTo(remote.progress) end
         end,
         cancel_callback = function()
@@ -155,9 +165,11 @@ end
 function SyncEngine:save()
     UIManager:unschedule(self.save_task)
     if not (self.checked and self.dirty) or not self:document() or not self.online() then return end
-    local ok, err = SyncServer.put(self:document(), self:here())
+    local here = self:here()
+    local ok, err = SyncServer.put(self:document(), here)
     if ok then
         self.dirty = false
+        self:markSynced(here.percentage)
     else
         logger.info("Nightstand sync: could not save, will try again:", err)
     end

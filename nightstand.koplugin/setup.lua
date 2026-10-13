@@ -50,12 +50,12 @@ function Setup.adopt()
     end
 end
 
---- Switch the other sync plugins off, once. Returns the names of those that
---- were running, which only stop after a restart.
+--- Switch the other sync plugins off, once Nightstand syncs itself, and only
+--- once. Returns the names of those that were running, which only stop after
+--- a restart.
 function Setup.retireSyncPlugins()
-    if Settings:get("sync_plugins_retired") then return {} end
+    if Settings:get("sync_plugins_retired") or not require("syncserver").enabled() then return {} end
     Settings:set("sync_plugins_retired", true)
-    if not require("syncserver").enabled() then return {} end
     local disabled = G_reader_settings:readSetting("plugins_disabled") or {}
     local running = {}
     for _index, name in ipairs(Setup.SYNC_PLUGINS) do
@@ -79,6 +79,14 @@ function Setup.run()
     Setup.ran = true
     Setup.adopt()
     return Setup.retireSyncPlugins()
+end
+
+--- A server entered where there was none: positions sync through it, unless
+--- the reader already chose another sync server.
+function Setup.serverAdded()
+    if Settings:get("sync_service") == "off" or Settings:get("sync_service") == nil then
+        Settings:set("sync_service", "cwa")
+    end
 end
 
 --- True while another sync plugin still runs in this reader, so Nightstand

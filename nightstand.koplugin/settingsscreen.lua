@@ -115,6 +115,7 @@ function SettingsScreen:chooseSync()
     NightstandScreen.menu(_("Sync reading positions through"), options, Settings:get("sync_service") or "off",
         function(spec)
             Settings:set("sync_service", spec.id)
+            self.plugin:syncChanged()
             self:refresh()
             if (spec.id == "public" or spec.id == "custom") and SyncServer.current().kind == "off" then
                 self:syncAccount(spec.id)
@@ -153,6 +154,7 @@ function SettingsScreen:syncAccount(kind)
             if kind == "custom" then Settings:set("sync_url", url) end
             Settings:set("sync_username", user)
             Settings:set("sync_userkey", result)
+            self.plugin:syncChanged()
             self:refresh()
             Dialogs.note(create and _("Account created. Reading positions now sync.")
                                 or _("Signed in. Reading positions now sync."))

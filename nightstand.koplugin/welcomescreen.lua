@@ -103,9 +103,7 @@ end
 
 function WelcomeScreen:chooseServer()
     self.plugin:editServer(function()
-        if Settings:get("server") == "" then return end
-        if Settings:get("sync_service") == nil then Settings:set("sync_service", "cwa") end
-        self:next()
+        if Settings:get("server") ~= "" then self:next() end
     end)
 end
 
@@ -116,7 +114,6 @@ function WelcomeScreen:chooseFolder()
         select_directory = true, select_file = false, path = start,
         onConfirm = function(path)
             Settings:set("books_dir", (path:gsub("/+$", "")))
-            if Settings:get("sync_service") == nil then Settings:set("sync_service", "off") end
             self:next()
         end,
     })

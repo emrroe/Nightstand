@@ -164,6 +164,28 @@ T.describe("reading positions", function()
         T.eq(settings:readSetting("last_xpointer"), "/body/DocFragment[4].0")
         T.eq(settings:readSetting("nightstand_sync_seen"), 4242, "the sync treats this one as answered")
     end)
+    T.it("opening from Home keeps a place this device read to offline, for the reader to ask about", function()
+        local dir = setup({ { "Dune", "Frank Herbert" } })
+        local entry = require("books"):list(dir)[1]
+        local DocSettings = require("docsettings")
+        local settings = DocSettings:open(entry.file)
+        settings:saveSetting("last_xpointer", "/body/DocFragment[9].0")
+        settings:saveSetting("percent_finished", 0.6)
+        settings:flush()
+        entry.remote = { percentage = 0.3, progress = "/body/DocFragment[4].0", device = "nova2",
+                         device_id = "nova", timestamp = 4242 }
+        package.loaded["apps/reader/readerui"] = { showReader = function() end }
+        require("bookactions").open(nil, entry)
+        settings = DocSettings:open(entry.file)
+        T.eq(settings:readSetting("last_xpointer"), "/body/DocFragment[9].0", "never sent to the server")
+        T.eq(settings:readSetting("nightstand_sync_seen"), nil, "so the sync still asks")
+        settings:saveSetting("nightstand_synced", 0.6)
+        settings:flush()
+        require("bookactions").open(nil, entry)
+        package.loaded["apps/reader/readerui"] = nil
+        settings = DocSettings:open(entry.file)
+        T.eq(settings:readSetting("last_xpointer"), "/body/DocFragment[4].0", "the server knew it: go to the newer one")
+    end)
     T.it("a finished position elsewhere marks the book finished", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")

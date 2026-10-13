@@ -226,15 +226,18 @@ T.describe("nothing is saved before this device has compared with the server", f
     T.it("closing the book or sleeping saves, but only online", function()
         fresh(); pending = {}
         local calls = Fakes.cwa({})
-        local e, net = engine(reader(0.10))
+        local ui = reader(0.10)
+        local e, net = engine(ui)
         e:opened(); drain()
         e:pageTurned()
         net.online = false
         e:leaving()
         T.eq(puts(calls), 0)
+        T.eq(ui.doc_settings:readSetting("nightstand_synced"), nil, "the server does not know this place")
         net.online = true
         e:leaving()
         T.eq(puts(calls), 1)
+        T.eq(ui.doc_settings:readSetting("nightstand_synced"), 0.10, "now it does")
     end)
 end)
 

@@ -11,7 +11,7 @@ book id -- into the new copy's settings before it opens.
 
 local Progress = require("progress")
 
-local SyncGuard = {}
+local SyncGuard = { SAME_PLACE = 0.002 }  -- positions closer than this count as one
 
 --- Write `record`'s position into `file`'s settings, so the reader opens
 --- there. Without `force`, a book that already has a position keeps it.
@@ -39,11 +39,22 @@ function SyncGuard.seed(file, record, force, answered)
         return false
     end
     settings:saveSetting("percent_finished", record.percentage)
+    settings:saveSetting("nightstand_synced", record.percentage)
     -- the book now opens at this position: the sync has nothing to ask about it
     answered = answered or record.timestamp
     if answered then settings:saveSetting("nightstand_sync_seen", answered) end
     settings:flush()
     return true
+end
+
+--- Whether `file` was read on this device past what the server knows of it:
+--- a position no save or answer has reached the server with yet.
+function SyncGuard.unsynced(file)
+    local settings = require("docsettings"):open(file)
+    local here = settings:readSetting("percent_finished")
+    if not here then return false end
+    local synced = settings:readSetting("nightstand_synced")
+    return not synced or math.abs(here - synced) >= SyncGuard.SAME_PLACE
 end
 
 local function newer(a, b)

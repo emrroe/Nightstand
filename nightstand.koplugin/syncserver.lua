@@ -91,6 +91,8 @@ function SyncServer.get(document, server)
     server = server or SyncServer.current()
     if server.kind == "off" then return nil, "sync is off" end
     local code, data = SyncServer.request(server, "GET", "/syncs/progress/" .. document)
+    -- some servers answer an unknown document with 404 rather than an empty record
+    if code == 404 then return nil end
     if code ~= 200 then return nil, code and ("HTTP " .. code) or data end
     if type(data) ~= "table" or type(data.percentage) ~= "number" then return nil end
     local function str(v) return type(v) == "string" and v or nil end

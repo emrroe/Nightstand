@@ -55,6 +55,24 @@ T.describe("which sync server", function()
         T.eq(seen.headers["Authorization"], nil)
         http.request = real
     end)
+    T.it("a document the server has never seen is no position, not an error", function()
+        local SyncServer = require("syncserver")
+        local http = require("socket.http")
+        local real = http.request
+        local code, body = 404, '{"message": "Document not found"}'
+        http.request = function(req) req.sink(body) return 1, code, {}, "x" end
+        local server = { kind = "cwa", url = "https://b/kosync", username = "u", password = "p" }
+        local rec, err = SyncServer.get("doc", server)
+        T.eq(rec, nil)
+        T.eq(err, nil, "404: nothing there yet")
+        code, body = 200, "{}"
+        rec, err = SyncServer.get("doc", server)
+        T.eq(rec, nil)
+        T.eq(err, nil, "an empty record, as KOReader's own server answers")
+        code = 500
+        T.eq(select(2, SyncServer.get("doc", server)), "HTTP 500", "a broken server is still an error")
+        http.request = real
+    end)
     T.it("signing up and in report what went wrong", function()
         local SyncServer = require("syncserver")
         local http = require("socket.http")
@@ -121,6 +139,40 @@ T.describe("first start", function()
         Setup.ran = nil
         Setup.run()
         T.eq(G_reader_settings:readSetting("plugins_disabled").kosync, nil, "turned back on stays on")
+    end)
+    T.it("a new reader who chooses a server syncs through it, and the old plugins step aside", function()
+        local Settings = require("settings")
+        local UIManager = require("ui/uimanager")
+        reset()
+        Settings:delete("books_dir")
+        Settings:delete("welcomed")
+        local Nightstand = require("main")
+        local shown = {}
+        local show, nextTick = UIManager.show, UIManager.nextTick
+        UIManager.show = function(_, w) table.insert(shown, w) end
+        UIManager.nextTick = function(_, f) f() end
+        local ok, err = xpcall(function()
+            local ui = { menu = { registerToMainMenu = function() end },
+                         registerPostInitCallback = function(_, f) f() end }
+            Nightstand:new{ ui = ui }
+            T.eq(Settings:get("sync_service"), "off", "nothing to sync with yet")
+            T.eq(Settings:get("sync_plugins_retired"), nil, "nothing replaces them yet")
+            local welcome = shown[#shown]
+            T.eq(welcome.name, "nightstand_welcome")
+            welcome.refresh = function() end
+            welcome:chooseServer()
+            local dialog = shown[#shown]
+            dialog.getFields = function() return { "https://books.example", "reader", "secret", "/tmp" } end
+            dialog.onShowKeyboard = function() end
+            dialog.buttons[1][2].callback()
+            T.eq(welcome.step, "hardcover", "on to the next step")
+        end, debug.traceback)
+        UIManager.show, UIManager.nextTick = show, nextTick
+        T.ok(ok, tostring(err))
+        T.eq(Settings:get("sync_service"), "cwa")
+        T.ok(require("syncserver").enabled())
+        local disabled = G_reader_settings:readSetting("plugins_disabled") or {}
+        T.ok(disabled.cwasync and disabled.kosync, "both other sync plugins are off")
     end)
     T.it("an old sync plugin still running this session keeps the job alone", function()
         local Settings, Setup = require("settings"), require("setup")

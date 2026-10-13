@@ -39,20 +39,27 @@ local SYNC_PLUGIN_NAMES = { cwasync = _("CWA Progress Sync"), kosync = _("Progre
 
 function Nightstand:init()
     self.ui.menu:registerToMainMenu(self)
-    local retired = require("setup").run()
-    if #retired > 0 then
-        local names = {}
-        for i, name in ipairs(retired) do names[i] = SYNC_PLUGIN_NAMES[name] or name end
-        UIManager:nextTick(function()
-            UIManager:askForRestart(T(_("Nightstand now keeps reading positions in sync itself, so %1 has been switched off. Restart KOReader to finish."),
-                                      table.concat(names, ", ")))
-        end)
-    end
+    self:askRestartFor(require("setup").run())
     -- `name = "filemanager"` lives on the FileChooser, not on FileManager, so
     -- the absence of a document is what distinguishes the two hosts.
     if not self.ui.document and self.ui.registerPostInitCallback then
         self.ui:registerPostInitCallback(function() self:openAsHome() end)
     end
+end
+
+--- Sync just came on: the old sync plugins step aside.
+function Nightstand:syncChanged()
+    self:askRestartFor(require("setup").retireSyncPlugins())
+end
+
+function Nightstand:askRestartFor(retired)
+    if #retired == 0 then return end
+    local names = {}
+    for i, name in ipairs(retired) do names[i] = SYNC_PLUGIN_NAMES[name] or name end
+    UIManager:nextTick(function()
+        UIManager:askForRestart(T(_("Nightstand now keeps reading positions in sync itself, so %1 has been switched off. Restart KOReader to finish."),
+                                  table.concat(names, ", ")))
+    end)
 end
 
 -- in the reader: the open book's position, shared through the sync server
@@ -245,6 +252,7 @@ function Nightstand:editServer(on_saved)
             { text = _("Cancel"), id = "close", callback = function() UIManager:close(dialog) end },
             { text = _("Save"), callback = function()
                 local fields = dialog:getFields()
+                local had_server = Settings:get("server") ~= ""
                 -- the bare root, never a trailing slash: paths are added to it
                 Settings:set("server", (fields[1] or ""):gsub("/+$", ""))
                 Settings:set("username", fields[2] or "")
@@ -257,8 +265,10 @@ function Nightstand:editServer(on_saved)
                     if dir ~= "" then require("util").makePath(dir) end
                 end
                 Settings:set("books_dir", dir)
+                if not had_server and Settings:get("server") ~= "" then require("setup").serverAdded() end
                 Availability:invalidate()
                 UIManager:close(dialog)
+                self:syncChanged()
                 if on_saved then on_saved() end
             end },
         }},

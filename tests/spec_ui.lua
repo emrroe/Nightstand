@@ -156,7 +156,7 @@ local function plugin()
     recorder.calls = {}
     local p = {}
     for _, name in ipairs({ "openTab", "openSettings", "openLibrary", "editServer", "openAsHome",
-                            "refreshCatalogue", "openKoreaderMenu" }) do
+                            "refreshCatalogue", "openKoreaderMenu", "syncChanged" }) do
         p[name] = function(_, ...) table.insert(recorder.calls, name) end
     end
     return p
@@ -164,8 +164,6 @@ end
 
 local function quiet(screen)
     screen.openBook = function() table.insert(recorder.calls, "openBook") end
-    screen.fetchAndOpen = function() table.insert(recorder.calls, "fetchAndOpen") end
-    screen.showBlurb = function() table.insert(recorder.calls, "showBlurb") end
     -- menus apply each of their options in turn instead of waiting for a tap
     screen.menu = function(self, _title, list, _current, on_pick)
         for _, spec in ipairs(list) do
