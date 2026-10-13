@@ -142,13 +142,14 @@ function Books:list(books_dir)
 end
 
 function Books:build(map)
-    local entries, locals = {}, {}
+    local entries, locals, present = {}, {}, {}
     for checksum, file in pairs(map) do
         local entry = self:entryFor(file, checksum)
         table.insert(entries, entry)
         table.insert(locals, { key = norm(entry.title), entry = entry })
+        present[file] = true
     end
-    EpubMeta.flush()
+    EpubMeta.flush(present)
 
     -- Exact titles claim their files first; a file named "<title> <author>"
     -- is only claimed afterwards, and only when the author's surname is there.

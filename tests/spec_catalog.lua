@@ -156,6 +156,25 @@ T.describe("catalogue extras", function()
         T.eq(Catalog:load()[1].series, "S", "an unreadable series index changes nothing")
     end)
 
+    T.it("a second series refresh waits; numbers found meanwhile survive a catalogue refresh", function()
+        Fakes.cwa(Fakes.library({ book(1, { series = { "S", 3 } }), book(2) }))
+        local Catalog = require("catalog")
+        assert(Catalog:refresh())
+        local steps = {}
+        local function later(items, work, opts) table.insert(steps, { items, work, opts }) end
+        Catalog:refreshSeries(later)
+        Catalog:refreshSeries(later)
+        T.eq(#steps, 1, "not queued twice")
+        local function runStep(s) for _, item in ipairs(s[1]) do s[2](item) end s[3].on_done() end
+        runStep(steps[1])
+        assert(Catalog:refresh())
+        runStep(steps[2])
+        T.eq(Catalog:load()[1].series_index, 3, "carried over to the new list")
+        Catalog:refreshSeries(later)
+        T.eq(#steps, 3, "free again once finished")
+        runStep(steps[3]); runStep(steps[4])
+    end)
+
     T.it("marks books read on the server", function()
         Fakes.cwa(Fakes.library({ book(1, { read = true }), book(2) }))
         local read = {}

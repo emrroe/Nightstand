@@ -140,8 +140,25 @@ T.describe("hardcover tokens", function()
         server.online = false
         local Settings = require("settings")
         local a = Settings:get("hardcover"); a.expires_at = 0; Settings:set("hardcover", a)
-        T.eq(require("hardcover"):query("{ me { id } }"), nil)
+        local data, err = require("hardcover"):query("{ me { id } }")
+        T.eq(data, nil)
+        T.eq(err, "Hardcover could not be reached")
         T.ok(require("hardcover"):isLinked(), "still linked")
+    end)
+    T.it("a refresh refused for another reason keeps the account", function()
+        local server = Fakes.hardcover()
+        link(server)
+        local Hardcover = require("hardcover")
+        local post = Hardcover.post
+        Hardcover.post = function(self, path, ...)
+            if path == "/oauth2/token" then return 400, { error = "invalid_request" } end
+            return post(self, path, ...)
+        end
+        local Settings = require("settings")
+        local a = Settings:get("hardcover"); a.expires_at = 0; Settings:set("hardcover", a)
+        T.eq(Hardcover:query("{ me { id } }"), nil)
+        T.ok(Hardcover:isLinked(), "a passing glitch does not sign out")
+        Hardcover.post = post
     end)
     T.it("graphql errors come back as messages", function()
         local server = Fakes.hardcover()

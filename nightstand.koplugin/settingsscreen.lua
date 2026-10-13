@@ -244,7 +244,9 @@ function SettingsScreen:libraryRows(books_dir)
     if server ~= "" then
         table.insert(rows, { label = _("Refresh catalogue"),
                              value = T(_("%1 books"), Catalog:count()),
-                             action = function() plugin:refreshCatalogue() self:refresh() end })
+                             action = function()
+                                 Net.whenOnline(function() plugin:refreshCatalogue() self:refresh() end)
+                             end })
         table.insert(rows, { label = _("Update positions when the device wakes"), key = "refresh_on_wake" })
     end
     return rows

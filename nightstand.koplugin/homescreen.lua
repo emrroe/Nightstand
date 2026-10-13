@@ -2,7 +2,7 @@
 Nightstand's home screen: the book being read, over shelves of covers.
 
 Bands, top to bottom: status strip, hero (the continue card), shelves, tab
-bar. Discover reuses this layout with its own hero and shelves.
+bar.
 --]]--
 
 local CenterContainer = require("ui/widget/container/centercontainer")
@@ -45,7 +45,7 @@ function HomeScreen:build()
     local tabs_h = self:tabsHeight()
     local tabs_margin = self:tabsMargin()
 
-    local all = self:shelfSource()
+    local all = Books:shelves(self.entries, self.current)
 
     -- A book shows up once on the home screen: a later shelf skips covers an
     -- earlier one already shows. Shelves stay even when that empties them.
@@ -86,16 +86,7 @@ function HomeScreen:build()
     add(rule(w), line)
 
     for index = 1, count do
-        local strip_y = y
-        if shelves[index] then
-            add(self:stripBand(shelves[index], each, strip_y), each)
-        else
-            -- a fresh install: nothing local and no catalogue fetched yet
-            add(CenterContainer:new{
-                dimen = Geom:new{ w = w, h = each },
-                text(_("No books yet. Refresh the catalogue under Settings."), REGULAR, 14, MUTED),
-            }, each)
-        end
+        add(self:stripBand(shelves[index], each, y), each)
     end
 
     add(VerticalSpan:new{ width = tabs_margin }, tabs_margin)
@@ -103,12 +94,6 @@ function HomeScreen:build()
     add(self:tabsBand(tabs_h, tabs_y), tabs_h)
 
     self:setContent(stack)
-end
-
---- The shelves to stack under the hero; other screens built like this one
---- (Discover) supply their own.
-function HomeScreen:shelfSource()
-    return Books:shelves(self.entries, self.current)
 end
 
 --- The tab bar is chrome, not content: it keeps one height whatever the

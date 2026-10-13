@@ -27,8 +27,14 @@ end
 function Availability:scan(root)
     local map = {}
     local count = 0
+    -- folders by identity: a link back to a parent folder is walked once
+    local seen = {}
 
     local function walk(dir)
+        local attr = lfs.attributes(dir)
+        local id = attr and (attr.dev .. ":" .. attr.ino)
+        if not id or seen[id] then return end
+        seen[id] = true
         local ok, iter, dir_obj = pcall(lfs.dir, dir)
         if not ok then return end
         for name in iter, dir_obj do

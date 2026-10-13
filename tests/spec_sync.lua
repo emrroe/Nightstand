@@ -115,6 +115,20 @@ T.describe("a fresh download opens where the book was left", function()
         T.eq(Progress:seed(file, { progress = XP, percentage = 0.2 }), false)
         T.ok(Progress:seed(file, { progress = XP, percentage = 0.2 }, true), "a restore overrides")
     end)
+    T.it("only CWA is asked by its own book id", function()
+        fresh()
+        local file = book("public")
+        local calls = Fakes.cwa({ ["/kosync/syncs/progress/13"] = record(0.2077) })
+        local SyncServer = require("syncserver")
+        local cwa = SyncServer.current
+        SyncServer.current = function()
+            return { kind = "public", url = "https://sync.test", username = "reader", userkey = "k" }
+        end
+        T.eq(require("progress"):seedDownload({ book_id = 13 }, file), false)
+        SyncServer.current = cwa
+        for _, c in ipairs(calls) do T.ok(c ~= "GET 13", "asked for the CWA id") end
+        T.eq(#calls, 1, "the checksum only")
+    end)
     T.it("a position picked to restore beats the server's, once", function()
         fresh()
         local file = book("chosen")

@@ -59,7 +59,7 @@ function Progress:remember(key, record)
     local list = self.history[key] or {}
     local last = list[1]
     if not last or last.device ~= record.device
-       or math.abs((last.percentage or 0) - (record.percentage or 0)) > 0.001 then
+       or math.abs((last.percentage or 0) - (record.percentage or 0)) >= Progress.SAME_PLACE then
         table.insert(list, 1, record)
         while #list > HISTORY do table.remove(list) end
     end
@@ -72,7 +72,8 @@ function Progress:positions(entry)
     local out, seen = {}, {}
     for _index, key in pairs({ entry.checksum or false, Progress.bookKey(entry.book_id) or false }) do
         for _index2, record in ipairs(key and self.history[key] or {}) do
-            local id = string.format("%s|%.3f", tostring(record.device), record.percentage or 0)
+            local place = math.floor((record.percentage or 0) / Progress.SAME_PLACE + 0.5)
+            local id = tostring(record.device) .. "|" .. place
             if not seen[id] then
                 seen[id] = true
                 table.insert(out, record)
@@ -179,7 +180,8 @@ function Progress:seedDownload(entry, file)
     local record = self:chosen(entry.book_id)
     if not record then
         local by_checksum = ok and checksum and self:fetch(checksum)
-        local by_id = entry.book_id and self:fetch(tostring(entry.book_id))
+        local by_id = entry.book_id and require("syncserver").current().kind == "cwa"
+                      and self:fetch(tostring(entry.book_id))
         if by_checksum then self:remember(checksum, by_checksum) end
         if by_id then self:remember(Progress.bookKey(entry.book_id), by_id) end
         self:save()

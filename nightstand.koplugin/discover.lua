@@ -201,7 +201,9 @@ function Discover:fetchCover(book)
     lfs.mkdir(dir)
     lfs.mkdir(dir .. "/nightstand")
     local path = self:coverFile(book.hc_id, book.image_url)
-    local handle = io.open(path, "wb")
+    -- a cover cut off midway must not count as fetched
+    local part = path .. ".part"
+    local handle = io.open(part, "wb")
     if not handle then return false end
     socketutil:set_timeout(10, 30)
     local code = socket.skip(1, http.request{
@@ -211,8 +213,9 @@ function Discover:fetchCover(book)
         sink = socketutil.file_sink(handle),
     })
     socketutil:reset_timeout()
-    if code ~= 200 then
-        os.remove(path)
+    if io.type(handle) == "file" then handle:close() end
+    if code ~= 200 or not os.rename(part, path) then
+        os.remove(part)
         return false
     end
     return true
@@ -306,13 +309,29 @@ local function surname(author)
     return require("text").surname(author):lower()
 end
 
+-- each library's books by loose title, built once per list: Discover matches
+-- a page of suggestions against the whole library on every redraw
+local by_title = setmetatable({}, { __mode = "k" })
+
+local function titlesOf(entries)
+    local index = by_title[entries]
+    if index then return index end
+    index = {}
+    for _index, entry in ipairs(entries) do
+        local key = norm(entry.title)
+        index[key] = index[key] or {}
+        table.insert(index[key], entry)
+    end
+    by_title[entries] = index
+    return index
+end
+
 --- The catalogue entry for a Hardcover book, when the library already has it.
 function Discover.match(book, entries)
-    local title, who = norm(book.title), surname(book.author)
-    for _index, entry in ipairs(entries or {}) do
-        if norm(entry.title) == title and (who == "" or surname(entry.author) == who) then
-            return entry
-        end
+    if not entries then return nil end
+    local who = surname(book.author)
+    for _index, entry in ipairs(titlesOf(entries)[norm(book.title)] or {}) do
+        if who == "" or surname(entry.author) == who then return entry end
     end
     return nil
 end

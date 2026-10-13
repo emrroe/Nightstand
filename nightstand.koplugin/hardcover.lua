@@ -156,9 +156,9 @@ function Hardcover:refresh()
         store(data)
         return true
     end
-    if code == 400 or code == 401 then
-        -- invalid_grant: the chain was revoked or has expired; only a new link helps
-        logger.warn("Nightstand: Hardcover refresh rejected:", data and data.error)
+    -- only a revoked or expired chain is final; anything else may pass
+    if data and data.error == "invalid_grant" then
+        logger.warn("Nightstand: Hardcover refresh rejected:", data.error)
         self:forget()
     end
     return false
@@ -177,13 +177,14 @@ end
 --- Run a GraphQL query. Returns the `data` table or nil, err.
 function Hardcover:query(query, variables)
     local token = self:accessToken()
-    if not token then return nil, "not linked" end
+    if not token then return nil, self:isLinked() and "Hardcover could not be reached" or "not linked" end
     local body = rapidjson.encode({ query = query, variables = variables or rapidjson.null })
     local code, data = self:post("/v1/graphql", body, "application/json", token)
     if code == 401 and self:refresh() then
         code, data = self:post("/v1/graphql", body, "application/json", self:accessToken())
     end
-    if code ~= 200 or not data then return nil, "HTTP " .. tostring(code) end
+    if not code then return nil, "Hardcover could not be reached" end
+    if code ~= 200 or not data then return nil, "HTTP " .. code end
     if data.errors then
         local first = data.errors[1]
         return nil, first and first.message or "query failed"

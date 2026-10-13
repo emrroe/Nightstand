@@ -201,9 +201,9 @@ function Catalog:idsIn(path)
     return ids
 end
 
---- Series name and position for each book. The book entries carry no series,
---- so this walks CWA's series feeds; each lists its books in series order.
---- Each series in CWA's index, as `{ name, href }`; nil when it cannot be read.
+--- Each series in CWA's index, as `{ name, href }`; nil when it cannot be
+--- read. Book entries carry no series, but each series feed lists its books
+--- in series order.
 function Catalog:seriesFeeds()
     local blocks = self:entryBlocks("/opds/series/letter/00")
     if not blocks then return nil end
@@ -234,19 +234,37 @@ end
 --- library -- a feed per series, then a request per book whose number is not
 --- known yet -- so it runs through `run` (Background.run), one request a step,
 --- after the books themselves are saved. `on_done` follows the last step.
+--- Asked for again while it runs, it leaves the running one to finish.
 function Catalog:refreshSeries(run, on_done)
     run = run or require("background").run
+    if self.series_running then return end
     local feeds = self:seriesFeeds()
     if not feeds then
         if on_done then on_done() end
         return
     end
-    local found = {}
+    self.series_running = true
+    local found, numbered = {}, nil
     local function finished()
+        self.series_running = nil
+        -- a catalogue refresh meanwhile replaced the list the numbers went to
+        if numbered and numbered ~= self.entries then
+            local known = {}
+            for _index, entry in ipairs(numbered) do
+                if entry.series_index_known then known[entry.book_id] = entry end
+            end
+            for _index, entry in ipairs(self.entries or {}) do
+                local old = known[entry.book_id]
+                if old and old.series == entry.series and not entry.series_index_known then
+                    entry.series_index, entry.series_index_known = old.series_index, true
+                end
+            end
+        end
         self:save()
         if on_done then on_done() end
     end
     local function numbers()
+        numbered = self.entries
         for _index, entry in ipairs(self.entries or {}) do
             local s = found[entry.book_id]
             if s and entry.series ~= s.name then entry.series_index_known = nil end

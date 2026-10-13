@@ -92,8 +92,17 @@ function EpubMeta.read(file)
     return meta
 end
 
---- Write the cache out after a folder has been read.
-function EpubMeta.flush()
+--- Write the cache out after a folder has been read. With `present` (path ->
+--- true, the whole folder), files no longer there are forgotten.
+function EpubMeta.flush(present)
+    if present and EpubMeta.store then
+        for file in pairs(EpubMeta.store.data) do
+            if not present[file] then
+                EpubMeta.store:delSetting(file)
+                EpubMeta.dirty = true
+            end
+        end
+    end
     if EpubMeta.dirty and EpubMeta.store then
         EpubMeta.store:flush()
         EpubMeta.dirty = false
