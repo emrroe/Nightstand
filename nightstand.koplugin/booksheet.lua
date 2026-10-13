@@ -51,13 +51,19 @@ function BookSheet:init()
             height_adjust = true,
         }
     end
-    table.insert(head, wrapped(self.title or "", W.BOLD, 17, W.BLACK, 3))
-    if self.author and self.author ~= "" then
-        table.insert(head, wrapped(self.author, W.REGULAR, 12.5, W.MUTED, 2))
+    -- heights are summed here: a group asked its size mid-build keeps it
+    local head_h = 0
+    local function put(widget)
+        table.insert(head, widget)
+        head_h = head_h + widget:getSize().h
     end
-    table.insert(head, VerticalSpan:new{ width = Dim.pad.default })
+    put(wrapped(self.title or "", W.BOLD, 17, W.BLACK, 3))
+    if self.author and self.author ~= "" then
+        put(wrapped(self.author, W.REGULAR, 12.5, W.MUTED, 2))
+    end
+    put(VerticalSpan:new{ width = Dim.pad.default })
     for _index, fact in ipairs(self.facts or {}) do
-        table.insert(head, wrapped(fact, W.REGULAR, 11.5, W.BLACK, 2))
+        put(wrapped(fact, W.REGULAR, 11.5, W.BLACK, 2))
     end
 
     local close = function() self:onClose() end
@@ -77,14 +83,28 @@ function BookSheet:init()
     local buttons = ButtonTable:new{ width = inner_w, buttons = rows, zero_sep = true, show_parent = self }
 
     local cover_h = W.coverHeight(cover_w)
-    local top_h = math.max(cover_h, head:getSize().h)
-    local room = math.floor(sh * 0.86) - 2 * pad - top_h - pad - buttons:getSize().h
     local line_h = W.lineHeight(W.REGULAR, 12)
+    local beside, rest = nil, self.description
+    -- the description starts beside the cover, under the title and facts,
+    -- and carries on full width below it
+    local beside_lines = math.floor((cover_h - head_h - Dim.pad.default) / line_h)
+    if rest and rest ~= "" and beside_lines >= 1 then
+        local first, after = BookSheet.split(rest, text_w, beside_lines)
+        beside = TextBoxWidget:new{
+            text = first, face = Dim.face(W.REGULAR, 12), fgcolor = W.BLACK, width = text_w,
+        }
+        rest = after
+        put(VerticalSpan:new{ width = Dim.pad.default })
+        put(beside)
+    end
+
+    local top_h = math.max(cover_h, head_h)
+    local room = math.floor(sh * 0.86) - 2 * pad - top_h - pad - buttons:getSize().h
     local body
-    if self.description and self.description ~= "" and room >= 3 * line_h then
+    if rest and rest ~= "" and room >= 2 * line_h then
         body = ScrollTextWidget:new{
-            text = self.description, face = Dim.face(W.REGULAR, 12), fgcolor = W.BLACK,
-            width = inner_w, height = math.min(room, self:descriptionHeight(inner_w, line_h)),
+            text = rest, face = Dim.face(W.REGULAR, 12), fgcolor = W.BLACK,
+            width = inner_w, height = math.min(room, self:descriptionHeight(rest, inner_w, line_h)),
             dialog = self,
         }
     end
@@ -97,12 +117,12 @@ function BookSheet:init()
             W.hspan(pad),
             head,
         },
-        VerticalSpan:new{ width = pad },
     }
     if body then
+        table.insert(column, VerticalSpan:new{ width = Dim.pad.small })
         table.insert(column, body)
-        table.insert(column, VerticalSpan:new{ width = pad })
     end
+    table.insert(column, VerticalSpan:new{ width = pad })
     table.insert(column, buttons)
 
     self.frame = FrameContainer:new{
@@ -118,12 +138,28 @@ function BookSheet:init()
     }
 end
 
---- Height the whole description would need, so a short one leaves no gap.
-function BookSheet:descriptionHeight(width, line_h)
-    local probe = TextBoxWidget:new{ text = self.description, face = Dim.face(W.REGULAR, 12), width = width }
+--- Height a text would need at `width`, so a short one leaves no gap.
+function BookSheet:descriptionHeight(text, width, line_h)
+    local probe = TextBoxWidget:new{ text = text, face = Dim.face(W.REGULAR, 12), width = width }
     local h = probe:getSize().h
     probe:free()
     return math.max(line_h, h)
+end
+
+--- `text` cut after its first `lines` lines at `width`: the part that fits,
+--- and the rest (nil when it all fits).
+function BookSheet.split(text, width, lines)
+    local probe = TextBoxWidget:new{ text = text, face = Dim.face(W.REGULAR, 12), width = width }
+    local line = probe.vertical_string_list and probe.vertical_string_list[lines]
+    local next_line = probe.vertical_string_list and probe.vertical_string_list[lines + 1]
+    probe:free()
+    if not line or not next_line then return text, nil end
+    local chars = require("util").splitToChars(text)
+    local cut = line.next_start_offset or next_line.offset
+    if not cut or cut > #chars then return text, nil end
+    local first = table.concat(chars, "", 1, cut - 1):gsub("%s+$", "")
+    local rest = table.concat(chars, "", cut):gsub("^%s+", "")
+    return first, rest ~= "" and rest or nil
 end
 
 function BookSheet:onTapOutside(_arg, ges)

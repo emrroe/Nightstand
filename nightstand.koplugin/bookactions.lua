@@ -135,23 +135,16 @@ function BookActions.positions(screen, entry)
     UIManager:show(dialog)
 end
 
---- The book's details, with what can be done with it.
+--- The book's details, with what can be done with it: read it (or fetch
+--- it first), or take it off this device.
 function BookActions.details(screen, entry)
     local rows = {{
         { text = entry.on_device and _("Read") or _("Download and read"),
           callback = function() BookActions.open(screen, entry) end },
     }}
-    if hasPositions(entry) then
-        table.insert(rows[1], { text = _("Earlier positions…"),
-                                callback = function() BookActions.positions(screen, entry) end })
-    end
-    local second = {}
     if entry.on_device and entry.file then
-        table.insert(second, { text = _("Remove from device"), callback = function() BookActions.remove(screen, entry) end })
+        table.insert(rows[1], { text = _("Remove from device"), callback = function() BookActions.remove(screen, entry) end })
     end
-    table.insert(second, { text = T(_("Find on %1"), require("vendors").current().name),
-                           callback = function() require("vendors").show(entry) end })
-    table.insert(rows, second)
     UIManager:show(require("booksheet"):new{
         entry = entry, title = entry.title, author = entry.author,
         facts = BookActions.facts(entry), description = entry.summary, buttons = rows,

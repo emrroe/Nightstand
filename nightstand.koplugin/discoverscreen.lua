@@ -364,8 +364,12 @@ function DiscoverScreen:openBook(entry)
     rows[2] = {
         { text = status == Discover.READ and _("Mark as unread") or _("Mark as read"),
           callback = function() self:setStatus(entry, status ~= Discover.READ and Discover.READ or nil) end },
-        { text = T(_("Find on %1"), Vendors.current().name), callback = function() Vendors.show(entry) end },
     }
+    -- a shop only helps for a book the library does not have
+    if not entry.match then
+        table.insert(rows[2], { text = T(_("Find on %1"), Vendors.current().name),
+                                callback = function() Vendors.show(entry) end })
+    end
     UIManager:show(require("booksheet"):new{
         entry = entry, title = entry.title, author = entry.author,
         facts = facts, description = entry.summary, buttons = rows,
@@ -373,6 +377,8 @@ function DiscoverScreen:openBook(entry)
 end
 
 function DiscoverScreen:holdBook(entry)
+    -- a book the library has opens its details instead of a shop
+    if entry.match then return self:openBook(entry) end
     Vendors.show(entry)
 end
 
