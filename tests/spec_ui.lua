@@ -433,6 +433,83 @@ T.describe(SIZE .. " › opening a book", function()
     end)
 end)
 
+T.describe(SIZE .. " › book details and menus", function()
+    local function capture(fn)
+        local show, shown = UIManager.show, {}
+        UIManager.show = function(_, w) table.insert(shown, w) end
+        local ok, err = xpcall(fn, debug.traceback)
+        UIManager.show = show
+        assert(ok, err)
+        return shown
+    end
+    local function labels(dialog)
+        local out = {}
+        for _, row in ipairs(dialog.buttons) do
+            for _, b in ipairs(row) do table.insert(out, b.text) end
+        end
+        return table.concat(out, " | ")
+    end
+    T.it("a Library book shows its details with a cover, and every book has the same menu", function()
+        DATASETS["mixed with positions"]()
+        local lib = quiet(require("libraryscreen"):new{ plugin = plugin() })
+        local here, away
+        for _, e in ipairs(lib.items) do
+            if e.on_device and not here then here = e end
+            if not e.on_device and not away then away = e end
+        end
+        local shown = capture(function() lib:activate(here) end)
+        T.eq(#shown, 1, "tapping a book shows its details, not the reader")
+        paint(shown[1], "details of a book on the device")
+        shown = capture(function() require("bookactions").details(lib, away) end)
+        paint(shown[1], "details of a book on the server only")
+        local menu = capture(function() lib:holdBook(here) end)[1]
+        T.ok(labels(menu):find("Open") and labels(menu):find("Details") and labels(menu):find("Remove"),
+             "on the device: " .. labels(menu))
+        menu = capture(function() lib:holdBook(away) end)[1]
+        T.ok(labels(menu):find("Download and open") and not labels(menu):find("Remove"),
+             "on the server only: " .. labels(menu))
+        lib:free()
+    end)
+    T.it("Home opens the book being read at once, and shows details for everything else", function()
+        DATASETS["mixed with positions"]()
+        local home = quiet(require("homescreen"):new{ plugin = plugin() })
+        recorder.calls = {}
+        local shown = capture(function() home:showDetails(home.entries[1]) end)
+        paint(shown[1], "details from Home")
+        T.ok(not home.fresh, "a book is being read")
+    end)
+    T.it("removing a book the server holds keeps its position and highlights", function()
+        DATASETS["mixed with positions"]()
+        local lib = quiet(require("libraryscreen"):new{ plugin = plugin() })
+        local here
+        for _, e in ipairs(lib.items) do if e.on_device and e.book_id then here = e break end end
+        local settings = require("docsettings"):open(here.file)
+        settings:saveSetting("percent_finished", 0.3)
+        settings:flush()
+        local confirm = capture(function() require("bookactions").remove(lib, here) end)[1]
+        confirm.ok_callback()
+        T.eq(io.open(here.file), nil, "the file is gone")
+        T.ok(require("docsettings"):findSidecarFile(here.file), "its settings stay for a new download")
+        lib:free()
+    end)
+    T.it("a Discover book shows its cover, with Want to read and Mark as read", function()
+        DATASETS["mixed with positions"]()
+        Fakes.hardcover()
+        local Hardcover = require("hardcover")
+        local device = Hardcover:startLink()
+        Hardcover:poll(device.device_code)
+        Hardcover:fetchMe()
+        assert(require("discover"):refresh("Wind and Truth"))
+        local screen = require("discoverscreen"):new{ plugin = plugin() }
+        local sheet = capture(function() screen:openBook(screen.entries[1]) end)[1]
+        paint(sheet, "Discover details")
+        local text = {}
+        for _, row in ipairs(sheet.buttons) do for _, b in ipairs(row) do table.insert(text, b.text) end end
+        text = table.concat(text, " | ")
+        T.ok(text:find("Want to read") and text:find("Mark as read"), text)
+    end)
+end)
+
 T.describe(SIZE .. " › plugins", function()
     T.it("the plugin list paints, pages, and every switch survives a tap", function()
         DATASETS["local files only"]()

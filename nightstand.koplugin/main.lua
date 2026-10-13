@@ -96,18 +96,19 @@ function Nightstand:openLibrary(query)
     UIManager:show(require("libraryscreen"):new{ plugin = self, query = query }, "ui")
 end
 
---- Discover fetches from Hardcover when it has nothing, or nothing recent,
---- and the device is online; otherwise it shows what it has.
+--- Discover fetches from Hardcover the first time, when online; after that
+--- it shows what it has until the refresh button in Discover is used.
 function Nightstand:openDiscover(force)
     local Discover = require("discover")
     local data = Discover:load()
-    local stale = not data or os.time() - (data.fetched_at or 0) > 6 * 3600
-    if (stale or force) and NetworkMgr:isOnline() then
+    -- fetched once and kept; the refresh button in Discover fetches anew
+    if (not data or force) and NetworkMgr:isOnline() then
         local working = InfoMessage:new{ text = _("Fetching recommendations from Hardcover…") }
         UIManager:show(working)
         UIManager:forceRePaint()
         local current = Books:current(Books:list(Settings:booksDir()))
         local ok, err = Discover:refresh(current and current.title)
+        if ok then Discover:markFinished(Books:list(Settings:booksDir())) end
         UIManager:close(working)
         if not ok and not data then
             UIManager:show(InfoMessage:new{ text = T(_("Could not reach Hardcover.\n%1"), tostring(err)) })

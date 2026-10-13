@@ -279,10 +279,10 @@ function Fakes.hardcover_rebind(server)
             local d = server.discover
             if query:match("insert_user_book") then
                 d.next_id = (d.next_id or 9000) + 1
-                table.insert(d.user_books, { id = d.next_id, book_id = vars.b, status_id = 1 })
+                table.insert(d.user_books, { id = d.next_id, book_id = vars.b, status_id = vars.s or 1 })
                 return 200, { data = { insert_user_book = { id = d.next_id, error = rapidjson.null } } }
             elseif query:match("update_user_book") then
-                for _, ub in ipairs(d.user_books) do if ub.id == vars.id then ub.status_id = 1 end end
+                for _, ub in ipairs(d.user_books) do if ub.id == vars.id then ub.status_id = vars.s or 1 end end
                 return 200, { data = { update_user_book = { id = vars.id, error = rapidjson.null } } }
             elseif query:match("delete_user_book") then
                 for i, ub in ipairs(d.user_books) do

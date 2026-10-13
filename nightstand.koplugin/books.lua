@@ -230,10 +230,16 @@ function Books:current(entries)
     -- else the newest addition
     local next_up = self:nextInSeries(entries)[1]
     if next_up then return next_up, true end
+    -- CWA's own order of new books when there is one, else the date added,
+    -- which a books folder alone also has
+    local function newer(a, b)
+        if a.added_rank and b.added_rank then return a.added_rank < b.added_rank end
+        if a.added_rank or b.added_rank then return a.added_rank ~= nil end
+        return (a.added or "") > (b.added or "")
+    end
     local newest
     for _index, entry in ipairs(entries) do
-        if entry.status ~= "complete" and entry.added_rank
-           and (not newest or entry.added_rank < newest.added_rank) then
+        if entry.status ~= "complete" and (not newest or newer(entry, newest)) then
             newest = entry
         end
     end

@@ -246,7 +246,7 @@ function HomeScreen:stripBand(shelf, h, band_y)
             self:zone(self.gutter + (index - 1) * (cover_w + gap),
                       top + label_h + Dim.pad.default,
                       cover_w, cover_h,
-                      function() self:openBook(entry) end,
+                      function() self:showDetails(entry) end,
                       function() self:holdBook(entry) end)
         else
             table.insert(row, hspan(cover_w))
@@ -473,8 +473,11 @@ function HomeScreen:heroBand(h, band_y, with_blurb)
         self:zone(meta_x, top + more_offset, size.w, size.h,
                   function() self:showBlurb(entry.title, entry.summary) end)
     end
-    self:zone(0, band_y, self.screen_w, h, function() self:openBook(entry) end,
-              function() self:holdBook(entry) end)
+    -- the book being read opens at once; a suggestion shows its details first
+    self:zone(0, band_y, self.screen_w, h, function()
+        if self.fresh then return self:showDetails(entry) end
+        self:openBook(entry)
+    end, function() self:holdBook(entry) end)
 
     return band(self.screen_w, h, self.gutter,
                 HorizontalGroup:new{ align = "top", tile, hspan(self.gutter), meta })
@@ -521,6 +524,10 @@ function HomeScreen:heroDetails(entry, meta_w)
 end
 
 -- behaviour ----------------------------------------------------------------
+
+function HomeScreen:showDetails(entry)
+    require("bookactions").details(self, entry)
+end
 
 --- Back on the home screen leaves KOReader, the way it does from the file
 --- browser this screen stands in for, honouring "Back to exit".

@@ -227,41 +227,77 @@ function Discover:isWanted(hc_id)
 end
 
 --- Add to or remove from Want to read. Returns ok, err.
-function Discover:setWanted(hc_id, wanted)
+function Discover:status(hc_id)
+    local data = self:load()
+    local entry = data and data.library[hc_id]
+    return entry and entry.status or nil
+end
+
+--- Put a book on one of the reader's Hardcover shelves (`Discover.WANT`,
+--- `READING`, `READ`), or take it off them all with nil. Returns ok, err.
+function Discover:setStatus(hc_id, status)
     local data = self:load()
     if not data then return false, "nothing loaded" end
     local entry = data.library[hc_id]
-    if wanted then
+    if status then
         local result, err
         if entry then
             result, err = Hardcover:query(
-                "mutation($id:Int!){ update_user_book(id:$id, object:{status_id:1}){ id error } }",
-                { id = entry.id })
+                "mutation($id:Int!,$s:Int!){ update_user_book(id:$id, object:{status_id:$s}){ id error } }",
+                { id = entry.id, s = status })
             result = result and result.update_user_book
         else
             result, err = Hardcover:query(
-                "mutation($b:Int!){ insert_user_book(object:{book_id:$b, status_id:1}){ id error } }",
-                { b = hc_id })
+                "mutation($b:Int!,$s:Int!){ insert_user_book(object:{book_id:$b, status_id:$s}){ id error } }",
+                { b = hc_id, s = status })
             result = result and result.insert_user_book
         end
         if not result then return false, err end
         if val(result.error) then return false, result.error end
-        data.library[hc_id] = { id = val(result.id) or (entry and entry.id), status = Discover.WANT }
-        local present = false
-        for _index, id in ipairs(data.lists.want) do if id == hc_id then present = true end end
-        if not present then table.insert(data.lists.want, 1, hc_id) end
+        data.library[hc_id] = { id = val(result.id) or (entry and entry.id), status = status }
     else
         if not entry then return true end
         local result, err = Hardcover:query(
             "mutation($id:Int!){ delete_user_book(id:$id){ id } }", { id = entry.id })
         if not result then return false, err end
         data.library[hc_id] = nil
-        for i, id in ipairs(data.lists.want) do
-            if id == hc_id then table.remove(data.lists.want, i) break end
-        end
     end
+    -- the Want to read list follows the status
+    local index
+    for i, id in ipairs(data.lists.want) do if id == hc_id then index = i end end
+    if status == Discover.WANT and not index then table.insert(data.lists.want, 1, hc_id) end
+    if status ~= Discover.WANT and index then table.remove(data.lists.want, index) end
     self:save()
     return true
+end
+
+function Discover:setWanted(hc_id, wanted)
+    return self:setStatus(hc_id, wanted and Discover.WANT or nil)
+end
+
+--- With the setting on: books the reader finished in the library that sit
+--- in the suggestions get marked read on Hardcover, so they stop coming
+--- back. Returns how many were marked.
+function Discover:markFinished(library)
+    local data = self:load()
+    if not data or not require("settings"):get("hardcover_mark_finished") then return 0 end
+    local marked = 0
+    for hc_id, book in pairs(data.books) do
+        local match = Discover.match(book, library)
+        if match and match.status == "complete" and self:status(hc_id) ~= Discover.READ then
+            if self:setStatus(hc_id, Discover.READ) then marked = marked + 1 end
+        end
+    end
+    if marked > 0 then
+        -- read books leave the suggestions now, not only at the next refresh
+        for _name, list in pairs(data.lists) do
+            for i = #list, 1, -1 do
+                if self:status(list[i]) == Discover.READ then table.remove(list, i) end
+            end
+        end
+        self:save()
+    end
+    return marked
 end
 
 -- matching against the CWA catalogue -----------------------------------------------

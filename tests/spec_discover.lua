@@ -19,6 +19,37 @@ local function linked(opts)
     return server, Discover
 end
 
+T.describe("read and unread", function()
+    T.it("marking read and unread moves the book between Hardcover shelves", function()
+        local server, Discover = linked()
+        assert(Discover:refresh("Wind and Truth"))
+        local id = Discover:load().lists.recs[1]
+        T.ok(Discover:setStatus(id, Discover.READ))
+        T.eq(Discover:status(id), Discover.READ)
+        local found
+        for _, ub in ipairs(server.discover.user_books) do if ub.book_id == id then found = ub end end
+        T.eq(found.status_id, Discover.READ, "Hardcover was told")
+        T.ok(Discover:setStatus(id, nil))
+        T.eq(Discover:status(id), nil, "unread takes it off every shelf")
+        T.ok(Discover:setWanted(id, true))
+        T.eq(Discover:load().lists.want[1], id, "the want list follows")
+        T.ok(Discover:setStatus(id, Discover.READ))
+        for _, x in ipairs(Discover:load().lists.want) do T.ok(x ~= id, "read books leave the want list") end
+    end)
+    T.it("with the setting on, finished library books are marked read and leave the suggestions", function()
+        local _, Discover = linked()
+        assert(Discover:refresh("Wind and Truth"))
+        local id = Discover:load().lists.recs[1]
+        local book = Discover:load().books[id]
+        local library = { { title = book.title, author = book.author, status = "complete" } }
+        T.eq(Discover:markFinished(library), 0, "off by default")
+        require("settings"):set("hardcover_mark_finished", true)
+        T.eq(Discover:markFinished(library), 1)
+        T.eq(Discover:status(id), Discover.READ)
+        for _, x in ipairs(Discover:load().lists.recs) do T.ok(x ~= id, "gone from the suggestions") end
+    end)
+end)
+
 T.describe("discover data", function()
     T.it("refresh builds the four lists, dropping books already read or being read", function()
         local _, Discover = linked()

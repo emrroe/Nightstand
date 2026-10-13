@@ -264,6 +264,8 @@ function SettingsScreen:hardcoverRows()
     if Hardcover:isLinked() then
         table.insert(rows, { label = _("Find books on"), value = Vendors.current().name,
                              action = function() self:chooseVendor() end })
+        table.insert(rows, { label = _("Mark finished books as read on Hardcover"),
+                             key = "hardcover_mark_finished" })
     end
     return rows
 end

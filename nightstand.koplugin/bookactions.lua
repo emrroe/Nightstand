@@ -47,26 +47,75 @@ function BookActions.open(screen, entry)
     Net.whenOnline(function() download(screen, entry) end)
 end
 
---- Long-press on a book: open it, or go back to a position it was read to
---- before, on any device -- for when one was overwritten by mistake.
+local function pct(p) return math.floor((p or 0) * 100 + 0.5) end
+
+--- Where the reader stands in a book, as one line.
+function BookActions.progressLine(entry)
+    if entry.status == "complete" then return _("Finished") end
+    if not require("books").started(entry) then return _("Not started") end
+    local line = T(_("%1% read"), pct(entry.percent))
+    if entry.device then
+        local when = entry.synced_at and os.date("%d %b", entry.synced_at)
+        line = line .. " · " .. entry.device .. (when and (", " .. when) or "")
+    end
+    return line
+end
+
+--- The short facts a sheet shows under the title and author.
+function BookActions.facts(entry)
+    local facts = {}
+    if entry.series and entry.series_index then
+        local n = entry.series_index
+        table.insert(facts, T(_("Book %1 of %2"), n == math.floor(n) and string.format("%d", n) or n,
+                              entry.series))
+    end
+    table.insert(facts, BookActions.progressLine(entry))
+    local year = type(entry.published) == "string" and entry.published:match("^(%d%d%d%d)")
+    local where = entry.on_device and _("On this device") or _("Not downloaded")
+    table.insert(facts, year and (where .. " · " .. year) or where)
+    return facts
+end
+
+local function hasPositions(entry)
+    return #require("progress"):positions(entry) > 0
+end
+
+--- Long-press on a book, on Home and in the Library: one menu everywhere.
 function BookActions.hold(screen, entry)
-    local Progress = require("progress")
-    local positions = Progress:positions(entry)
-    if #positions == 0 then return end
     local dialog
-    local buttons = {{{
-        text = entry.on_device and _("Open") or _("Download and open"),
-        callback = function()
+    local function button(text, fn)
+        return {{ text = text, align = "left", callback = function()
             UIManager:close(dialog)
-            BookActions.open(screen, entry)
-        end,
-    }}}
-    for index, record in ipairs(positions) do
-        if index > 5 then break end
+            fn()
+        end }}
+    end
+    local buttons = {
+        button(entry.on_device and _("Open") or _("Download and open"),
+               function() BookActions.open(screen, entry) end),
+        button(_("Details"), function() BookActions.details(screen, entry) end),
+    }
+    if hasPositions(entry) then
+        table.insert(buttons, button(_("Previous reading positions…"),
+                                     function() BookActions.positions(screen, entry) end))
+    end
+    if entry.on_device and entry.file then
+        table.insert(buttons, button(_("Remove from this device"), function() BookActions.remove(screen, entry) end))
+    end
+    dialog = require("ui/widget/buttondialog"):new{ title = entry.title, title_align = "center",
+                                                    buttons = buttons }
+    UIManager:show(dialog)
+end
+
+--- Positions the book was read to before, on any device, to go back to --
+--- for when one was overwritten by mistake.
+function BookActions.positions(screen, entry)
+    local dialog
+    local buttons = {}
+    for index, record in ipairs(require("progress"):positions(entry)) do
+        if index > 8 then break end
         local when = record.timestamp and os.date("%d %b %H:%M", record.timestamp) or "?"
         table.insert(buttons, {{
-            text = T(_("Go back to %1% · %2 · %3"), math.floor(record.percentage * 100 + 0.5),
-                     record.device or "?", when),
+            text = T(_("%1% · %2 · %3"), pct(record.percentage), record.device or "?", when),
             align = "left",
             callback = function()
                 UIManager:close(dialog)
@@ -74,9 +123,66 @@ function BookActions.hold(screen, entry)
             end,
         }})
     end
-    dialog = require("ui/widget/buttondialog"):new{ title = entry.title, title_align = "center",
-                                                    buttons = buttons }
+    if #buttons == 0 then
+        UIManager:show(require("ui/widget/infomessage"):new{
+            text = _("No earlier positions of this book are known yet."), timeout = 3 })
+        return
+    end
+    dialog = require("ui/widget/buttondialog"):new{
+        title = T(_("Go back to an earlier position in %1"), entry.title), title_align = "center",
+        buttons = buttons,
+    }
     UIManager:show(dialog)
+end
+
+--- The book's details, with what can be done with it.
+function BookActions.details(screen, entry)
+    local rows = {{
+        { text = entry.on_device and _("Read") or _("Download and read"),
+          callback = function() BookActions.open(screen, entry) end },
+    }}
+    if hasPositions(entry) then
+        table.insert(rows[1], { text = _("Earlier positions…"),
+                                callback = function() BookActions.positions(screen, entry) end })
+    end
+    local second = {}
+    if entry.on_device and entry.file then
+        table.insert(second, { text = _("Remove from device"), callback = function() BookActions.remove(screen, entry) end })
+    end
+    table.insert(second, { text = T(_("Find on %1"), require("vendors").current().name),
+                           callback = function() require("vendors").show(entry) end })
+    table.insert(rows, second)
+    UIManager:show(require("booksheet"):new{
+        entry = entry, title = entry.title, author = entry.author,
+        facts = BookActions.facts(entry), description = entry.summary, buttons = rows,
+    })
+end
+
+--- Delete the book's file from this device. A book the server also holds
+--- keeps its settings (position, highlights), ready for a new download; a
+--- book only this device had is gone for good, so it is asked about as such.
+function BookActions.remove(screen, entry)
+    local on_server = entry.book_id ~= nil
+    UIManager:show(require("ui/widget/confirmbox"):new{
+        text = on_server
+            and T(_("Remove \"%1\" from this device?\n\nIt stays on your server, and your position and highlights are kept for when you download it again."), entry.title)
+             or T(_("Delete \"%1\"?\n\nThis book is only on this device, so it will be gone for good, with its highlights."), entry.title),
+        ok_text = on_server and _("Remove") or _("Delete"),
+        ok_callback = function()
+            local file = entry.file
+            if not on_server then
+                pcall(function() require("docsettings"):open(file):purge() end)
+            end
+            local ok, err = os.remove(file)
+            if not ok then
+                UIManager:show(require("ui/widget/infomessage"):new{ text = T(_("Could not remove it: %1"), tostring(err)) })
+                return
+            end
+            pcall(function() require("readhistory"):removeItemByPath(file) end)
+            require("availability"):invalidate()
+            if screen and screen.reload then screen:reload() end
+        end,
+    })
 end
 
 --- Open `entry` at `record`'s position; the reader then saves it as the latest.

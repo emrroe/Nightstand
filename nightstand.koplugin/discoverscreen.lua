@@ -125,7 +125,7 @@ function DiscoverScreen:build()
         stack:add(self:listTabs(tabs_h, stack.y), tabs_h)
     end
     stack:add(self:listBand(list_h, stack.y), list_h)
-    stack:add(self:pagerBand(pager_h, stack.y, self:updatedLabel(), function() self:fetchAgain() end), pager_h)
+    stack:add(self:pagerBand(pager_h, stack.y, self:updatedLabel()), pager_h)
     stack:space(tabs_margin)
     stack:add(self:tabsBand(tabs_bar_h, stack.y), tabs_bar_h)
     self:setContent(stack.group)
@@ -134,13 +134,13 @@ end
 
 --- "Discover" with the view dropdown and the Want to read count on the
 --- right; inside Want to read, "‹ Want to read" and the way back.
+--- "Discover" with the view dropdown, the Want to read count and refresh
+--- on the right; inside Want to read, "‹ Want to read" and the way back.
 function DiscoverScreen:titleBand(h, band_y)
     local w = self.screen_w
     local data = Discover:load()
-    local sep = Dim.px(18)
-    local view = W.dropdown(self:viewLabel())
-    local right = HorizontalGroup:new{ align = "center", view }
-    local view_w = view:getSize().w
+    local sep = Dim.px(16)
+    local items = { { widget = W.dropdown(self:viewLabel()), on_tap = function() self:chooseView() end } }
     local left
     if self.list == "want" then
         left = HorizontalGroup:new{
@@ -151,23 +151,37 @@ function DiscoverScreen:titleBand(h, band_y)
         }
     else
         left = text(_("Discover"), BOLD, 21)
-        local want = HorizontalGroup:new{
-            align = "center",
-            W.icon("bookmark-on", 17),
-            hspan(Dim.pad.small),
-            text(tostring(#(data and data.lists.want or {})), BOLD, 12),
-        }
-        table.insert(right, hspan(sep))
-        table.insert(right, want)
-        local want_w = want:getSize().w
-        self:zone(w - self.gutter - want_w - sep / 2, band_y, want_w + sep / 2 + self.gutter, h,
-                  function() self:showList("want") end)
+        table.insert(items, {
+            widget = HorizontalGroup:new{
+                align = "center",
+                W.icon("bookmark-on", 17),
+                hspan(Dim.pad.small),
+                text(tostring(#(data and data.lists.want or {})), BOLD, 12),
+            },
+            on_tap = function() self:showList("want") end,
+        })
     end
-    local right_w = right:getSize().w
-    local view_x = w - self.gutter - right_w - sep / 2
-    self:zone(view_x, band_y, math.min(view_w + sep, w - view_x), h, function() self:chooseView() end)
+    table.insert(items, { widget = W.icon("refresh", 20), on_tap = function() self:fetchAgain() end })
+
+    local right = HorizontalGroup:new{ align = "center" }
+    local widths, right_w = {}, 0
+    for index, item in ipairs(items) do
+        widths[index] = item.widget:getSize().w
+        if index > 1 then
+            table.insert(right, hspan(sep))
+            right_w = right_w + sep
+        end
+        table.insert(right, item.widget)
+        right_w = right_w + widths[index]
+    end
+    local x = w - self.gutter - right_w
     if self.list == "want" then
-        self:zone(0, band_y, view_x, h, function() self:showList(self.previous or "recs") end)
+        self:zone(0, band_y, x - sep / 2, h, function() self:showList(self.previous or "recs") end)
+    end
+    for index, item in ipairs(items) do
+        local last = index == #items
+        self:zone(x - sep / 2, band_y, widths[index] + sep / 2 + (last and self.gutter or sep / 2), h, item.on_tap)
+        x = x + widths[index] + sep
     end
     return LeftContainer:new{
         dimen = Geom:new{ w = w, h = h },
@@ -311,6 +325,7 @@ function DiscoverScreen:fetchAgain()
     UIManager:forceRePaint()
     local current = Books:current(self.library)
     local ok, err = Discover:refresh(current and current.title)
+    if ok then Discover:markFinished(self.library) end
     UIManager:close(working)
     if not ok then
         UIManager:show(InfoMessage:new{ text = T(_("Could not reach Hardcover.\n%1"), tostring(err)) })
@@ -319,54 +334,51 @@ function DiscoverScreen:fetchAgain()
     self:reload()
 end
 
+--- The book's details over the list, with its cover, and what can be done
+--- with it: read it when the library has it, put it on or take it off the
+--- Want to read list, mark it read or unread on Hardcover, or find it.
 function DiscoverScreen:openBook(entry)
-    local lines = {}
-    if entry.author ~= "" then table.insert(lines, entry.author) end
     local facts = {}
-    if entry.rating then table.insert(facts, string.format("★ %.1f", entry.rating)) end
-    if entry.year then table.insert(facts, tostring(entry.year)) end
-    if entry.pages then table.insert(facts, T(_("%1 pages"), entry.pages)) end
-    if #facts > 0 then table.insert(lines, table.concat(facts, " · ")) end
-    if entry.summary then table.insert(lines, "\n" .. entry.summary) end
-
-    local viewer
-    local row = {}
-    if entry.match then
-        table.insert(row, {
-            text = entry.match.on_device and _("Read") or _("Download and read"),
-            callback = function()
-                UIManager:close(viewer)
-                BookActions.open(self, entry.match)
-            end,
-        })
+    local numbers = {}
+    if entry.rating then table.insert(numbers, string.format("★ %.1f", entry.rating)) end
+    if entry.year then table.insert(numbers, tostring(entry.year)) end
+    if entry.pages then table.insert(numbers, T(_("%1 pages"), entry.pages)) end
+    if #numbers > 0 then table.insert(facts, table.concat(numbers, " · ")) end
+    local status = Discover:status(entry.hc_id)
+    if status == Discover.READ then
+        table.insert(facts, _("Read"))
+    elseif entry.wanted then
+        table.insert(facts, _("On your Want to read list"))
     end
-    table.insert(row, {
-        text = entry.wanted and _("Remove from Want to read") or _("Want to read"),
-        callback = function()
-            UIManager:close(viewer)
-            self:toggleWanted(entry)
-        end,
-    })
-    viewer = require("ui/widget/textviewer"):new{
-        title = entry.title,
-        text = table.concat(lines, "\n"),
-        buttons_table = { row, {
-            { text = T(_("Find on %1"), Vendors.current().name), callback = function()
-                UIManager:close(viewer)
-                Vendors.show(entry)
-            end },
-            { text = _("Close"), callback = function() UIManager:close(viewer) end },
-        } },
+    if entry.match then
+        table.insert(facts, entry.match.on_device and _("On this device") or _("In your library"))
+    end
+
+    local rows = { {} }
+    if entry.match then
+        table.insert(rows[1], { text = entry.match.on_device and _("Read") or _("Download and read"),
+                                callback = function() BookActions.open(self, entry.match) end })
+    end
+    table.insert(rows[1], { text = entry.wanted and _("Remove from Want to read") or _("Want to read"),
+                            callback = function() self:setStatus(entry, not entry.wanted and Discover.WANT or nil) end })
+    rows[2] = {
+        { text = status == Discover.READ and _("Mark as unread") or _("Mark as read"),
+          callback = function() self:setStatus(entry, status ~= Discover.READ and Discover.READ or nil) end },
+        { text = T(_("Find on %1"), Vendors.current().name), callback = function() Vendors.show(entry) end },
     }
-    UIManager:show(viewer)
+    UIManager:show(require("booksheet"):new{
+        entry = entry, title = entry.title, author = entry.author,
+        facts = facts, description = entry.summary, buttons = rows,
+    })
 end
 
 function DiscoverScreen:holdBook(entry)
     Vendors.show(entry)
 end
 
-function DiscoverScreen:toggleWanted(entry)
-    local ok, err = Discover:setWanted(entry.hc_id, not entry.wanted)
+--- Change the book's shelf on Hardcover, then show the change.
+function DiscoverScreen:setStatus(entry, status)
+    local ok, err = Discover:setStatus(entry.hc_id, status)
     if not ok then
         UIManager:show(require("ui/widget/infomessage"):new{
             text = T(_("Hardcover didn't accept that.\n%1"), tostring(err)),
@@ -374,6 +386,10 @@ function DiscoverScreen:toggleWanted(entry)
         return
     end
     self:reload()
+end
+
+function DiscoverScreen:toggleWanted(entry)
+    self:setStatus(entry, not entry.wanted and Discover.WANT or nil)
 end
 
 --- Shown instead of the screen when nothing could be loaded.

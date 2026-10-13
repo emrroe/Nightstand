@@ -196,6 +196,9 @@ T.describe("reading positions", function()
         cur = Books:current({ { title = "old", status = "new", added_rank = 9 },
                               { title = "newest", status = "new", added_rank = 1 } })
         T.eq(cur.title, "newest", "else the newest addition")
+        cur = Books:current({ { title = "older file", status = "new", added = "2026-01-01" },
+                              { title = "newer file", status = "new", added = "2026-09-01" } })
+        T.eq(cur.title, "newer file", "a books folder without a server: the newest file")
         cur = Books:current({})
         T.eq(cur, nil, "no books, no hero")
     end)

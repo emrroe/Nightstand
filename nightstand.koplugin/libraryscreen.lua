@@ -226,16 +226,18 @@ function LibraryScreen:content(h, band_y)
     local first = (self.page - 1) * self.per_page + 1
     local zone = function(...) self:zone(...) end
     local tap = function(item) self:activate(item) end
+    -- books get the long-press menu; series, authors and genres just open
+    local hold = not self.showing_groups and function(item) self:holdBook(item) end or nil
     local body
     if self:listing() then
-        body = Rows.page(self.items, first, self.plan, self.screen_w, band_y, zone, tap, nil,
+        body = Rows.page(self.items, first, self.plan, self.screen_w, band_y, zone, tap, hold,
                          function(item, w, rh) return Rows.row(self:rowSpec(item), w, rh, self.gutter) end)
     else
         body = HorizontalGroup:new{
             hspan(self.gutter),
             CoverGrid.page(self.items, first, self.plan, self.screen_w - 2 * self.gutter,
                            band_y + self.plan.top,
-                           function(x, ...) self:zone(x + self.gutter, ...) end, tap),
+                           function(x, ...) self:zone(x + self.gutter, ...) end, tap, hold),
         }
         body = VerticalGroup:new{ align = "left", VerticalSpan:new{ width = self.plan.top }, body }
     end
@@ -301,7 +303,8 @@ function LibraryScreen:activate(item)
         self.open_group, self.page = item.name, 1
         return self:refresh()
     end
-    self:openBook(item)
+    -- a book shows its details first; reading is one button away
+    require("bookactions").details(self, item)
 end
 
 --- Back out of an opened group, or out of a search to where it started.
