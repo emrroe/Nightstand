@@ -5,23 +5,32 @@ library. The server holds the shelf; the device holds a cache of it.
 
 The whole library is on screen whether or not the file is here. Books that are
 not on this device carry a download badge in the bottom-right corner of the
-cover; tapping one fetches it and opens it. A continue-reading card reads its
-position from CWA's KOSync endpoint, so it can name which device you last read
-on.
+cover; tapping one fetches it and opens it. Without a server, a folder of
+EPUBs on the device is the library.
 
 ## Status
 
-The home screen works against a real CWA server: a continue-reading card,
-then shelves of covers. The catalogue merges with the local folder,
-server-only books carry a download badge, tapping one fetches it and opens
-it, and covers are fetched once and kept on disk. The footer has Home,
-Library and Settings.
+Home is a continue-reading card, then shelves of covers. The catalogue
+merges with the local folder, server-only books carry a download badge,
+tapping one fetches it and opens it, and covers are fetched once and kept on
+disk. The footer has Home, Library, Discover (once Hardcover is connected)
+and Settings.
 
 The Library tab is a paged cover grid with filters (All, On device, Reading,
 Unread, Finished) and sorts (recently read, title, author, date added,
 published, series). **Show** swaps the books for author, series or genre
 tiles; a series opens in reading order with its real series numbers, which
 come from CWA's book data since OPDS leaves them out.
+
+## Reading positions
+
+Nightstand keeps reading positions in sync itself, through CWA's built-in
+sync server, KOReader's public one, another compatible server, or not at
+all (**Settings → Sync**). Nothing is saved to the server before this device
+has compared its position with the server's; when another device left the
+book somewhere else, it asks which place to keep. It replaces the CWA
+Progress Sync plugin and KOReader's own Progress sync, and switches them off
+once it syncs itself.
 
 ## Discover
 
@@ -53,7 +62,9 @@ Copy `nightstand.koplugin/` into KOReader's plugin folder:
 | Android | `/sdcard/koreader/plugins/` |
 | Kobo, Kindle | `.adds/koreader/plugins/` |
 
-Then set the server and books folder under **Tools → Nightstand**.
+On the first start a welcome screen asks where the books live: a CWA server
+(address and login) or a folder on the device. Later updates install from
+**Settings → About → Check for updates**.
 
 ## Tests
 
