@@ -113,6 +113,57 @@ T.describe("reading positions", function()
         T.eq(e.device, "nova2")
         T.eq(e.last_read, 1700000000)
     end)
+    T.it("the most recent position wins, whichever device saved it and whichever way it moved", function()
+        local dir = setup({ { "Dune", "Frank Herbert" } })
+        local Books = require("books")
+        local file = Books:list(dir)[1].file
+        local DocSettings = require("docsettings")
+        local settings = DocSettings:open(file)
+        settings:saveSetting("percent_finished", 0.5)
+        settings:flush()
+        -- KOReader refreshes this cache itself when a book closes
+        require("ui/widget/booklist").resetBookInfoCache(file)
+        local lfs = require("libs/libkoreader-lfs")
+        lfs.touch(DocSettings:findSidecarFile(file), 1000, 1000)
+        local checksum = Books:list(dir)[1].checksum
+        local Progress = require("progress")
+        Progress:load()[checksum] = { percentage = 0.2, progress = "/body/DocFragment[3].0",
+                                       device = "nova2", device_id = "nova", timestamp = 2000 }
+        local e = Books:list(dir)[1]
+        T.eq(e.percent, 0.2, "the Nova went back a chapter later: that is where the book is")
+        T.eq(e.device, "nova2")
+        T.eq(e.remote.progress, "/body/DocFragment[3].0", "kept so opening can go there")
+        Progress:load()[checksum].timestamp = 500
+        e = Books:list(dir)[1]
+        T.eq(e.percent, 0.5, "this device read more recently")
+        T.eq(e.remote, nil)
+        T.eq(e.device, nil)
+    end)
+    T.it("this device's own save on the server is not news", function()
+        local dir = setup({ { "Dune", "Frank Herbert" } })
+        local Books = require("books")
+        local checksum = Books:list(dir)[1].checksum
+        G_reader_settings:saveSetting("device_id", "me")
+        require("progress"):load()[checksum] = { percentage = 0.7, device = "phone", device_id = "me",
+                                                 timestamp = os.time() + 100 }
+        local e = Books:list(dir)[1]
+        T.eq(e.remote, nil)
+        T.eq(e.device, nil)
+        G_reader_settings:delSetting("device_id")
+    end)
+    T.it("opening from Home goes to the newer position, and leaves the sync nothing to ask", function()
+        local dir = setup({ { "Dune", "Frank Herbert" } })
+        local Books = require("books")
+        local entry = Books:list(dir)[1]
+        entry.remote = { percentage = 0.3, progress = "/body/DocFragment[4].0", device = "nova2",
+                         device_id = "nova", timestamp = 4242 }
+        package.loaded["apps/reader/readerui"] = { showReader = function() end }
+        require("bookactions").open(nil, entry)
+        package.loaded["apps/reader/readerui"] = nil
+        local settings = require("docsettings"):open(entry.file)
+        T.eq(settings:readSetting("last_xpointer"), "/body/DocFragment[4].0")
+        T.eq(settings:readSetting("nightstand_sync_seen"), 4242, "the sync treats this one as answered")
+    end)
     T.it("a finished position elsewhere marks the book finished", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")

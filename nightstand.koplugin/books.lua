@@ -38,6 +38,11 @@ local function propsFor(file)
     return ok and props or nil
 end
 
+local function sidecarTime(file)
+    local sidecar = DocSettings:findSidecarFile(file)
+    return sidecar and lfs.attributes(sidecar, "modification") or 0
+end
+
 function Books:entryFor(file, checksum)
     local info = BookList.getBookInfo(file)
     local props = propsFor(file)
@@ -63,6 +68,8 @@ function Books:entryFor(file, checksum)
         added = modified and os.date("!%Y-%m-%dT%H:%M:%S+00:00", modified) or nil,
         pages = info and info.pages,
         percent = info and info.percent_finished,
+        -- when this device last saved its place: its settings file's time
+        position_at = info and info.percent_finished and sidecarTime(file) or nil,
         status = BookList.getBookStatus(file),
         on_device = true,
     }
@@ -71,18 +78,25 @@ function Books:entryFor(file, checksum)
     return entry
 end
 
---- A position read on another device only exists on the server. Take
---- whichever is further along rather than letting one overwrite the other.
+--- Where a book stands is its most recent position, from whichever device
+--- saved it last: what Home shows is where the book opens. A position from
+--- another device that beats this device's own is kept as `remote`, so
+--- opening the book can go straight there. The server's copy of this
+--- device's own saves says nothing new.
 function Books:applyPosition(entry, synced)
     if not synced or not synced.percentage then return end
-    local at = tonumber(synced.timestamp)
-    if at and at > (entry.server_read_at or 0) then entry.server_read_at = at end
-    if synced.percentage > (entry.percent or 0) then
-        entry.percent = synced.percentage
-        entry.device = synced.device
-        entry.synced_at = synced.timestamp
-        entry.status = synced.percentage >= 1 and "complete" or "reading"
-    end
+    local at = tonumber(synced.timestamp) or 0
+    if at > (entry.server_read_at or 0) then entry.server_read_at = at end
+    local mine = G_reader_settings and G_reader_settings:readSetting("device_id")
+    local own = synced.device_id ~= nil and synced.device_id == mine
+    if own and entry.on_device then return end
+    if entry.percent and at <= (entry.position_at or 0) then return end
+    entry.percent = synced.percentage
+    entry.position_at = at
+    entry.device = not own and synced.device or nil
+    entry.synced_at = synced.timestamp
+    entry.remote = entry.on_device and not own and synced or nil
+    entry.status = synced.percentage >= 1 and "complete" or "reading"
 end
 
 --- Titles compared loosely: local names carry the author, catalogue ones

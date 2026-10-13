@@ -37,6 +37,8 @@ end
 --- Open `entry` from `screen`, which closes once the reader takes over.
 function BookActions.open(screen, entry)
     if entry.on_device and entry.file then
+        -- open where Home said the book is: another device's newer position
+        if entry.remote then require("syncguard").seed(entry.file, entry.remote, true) end
         return showReader(entry.file)
     end
     if not Net.mayDownload() then
@@ -80,7 +82,8 @@ end
 --- Open `entry` at `record`'s position; the reader then saves it as the latest.
 function BookActions.restore(screen, entry, record)
     if entry.on_device and entry.file then
-        require("syncguard").seed(entry.file, record, true)
+        -- going back on purpose: newer positions elsewhere are not a question
+        require("syncguard").seed(entry.file, record, true, os.time())
     else
         require("progress"):choose(entry.book_id, record)
     end

@@ -1,5 +1,7 @@
 --[[--
-Opens a freshly downloaded book where it was left, rather than on page one.
+Opens a book where it was last read, on any device, rather than where this
+device left it -- for fresh downloads, and for books opened from Home or
+the Library while another device's position is the most recent.
 
 CWA writes its own id into every EPUB it serves, so a fresh copy can have a
 different checksum from one fetched elsewhere and find no position under it.
@@ -13,7 +15,9 @@ local SyncGuard = {}
 
 --- Write `record`'s position into `file`'s settings, so the reader opens
 --- there. Without `force`, a book that already has a position keeps it.
-function SyncGuard.seed(file, record, force)
+--- Positions saved up to `answered` (default: the record's own time) count
+--- as answered, so the sync does not ask about them on opening.
+function SyncGuard.seed(file, record, force, answered)
     local position = record and record.progress
     if type(position) ~= "string" then return false end
     local DocSettings = require("docsettings")
@@ -35,6 +39,9 @@ function SyncGuard.seed(file, record, force)
         return false
     end
     settings:saveSetting("percent_finished", record.percentage)
+    -- the book now opens at this position: the sync has nothing to ask about it
+    answered = answered or record.timestamp
+    if answered then settings:saveSetting("nightstand_sync_seen", answered) end
     settings:flush()
     return true
 end
