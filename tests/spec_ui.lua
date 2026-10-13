@@ -478,6 +478,28 @@ T.describe(SIZE .. " › book details and menus", function()
         paint(shown[1], "details from Home")
         T.ok(not home.fresh, "a book is being read")
     end)
+    T.it("a long description is paged, not scrolled, and every page fits", function()
+        DATASETS["mixed with positions"]()
+        local dirty = UIManager.setDirty
+        UIManager.setDirty = function() end
+        local sheet = require("booksheet"):new{
+            entry = { title = "Long" }, title = "Long", author = "Writer", facts = { "Not started" },
+            description = string.rep("A sentence that goes on for a while. ", 400),
+            buttons = { { { text = "Read", callback = function() end } } },
+        }
+        T.ok(#sheet.pages > 1, "split into pages")
+        for i = 1, #sheet.pages do
+            paint(sheet, "description page " .. i)
+            sheet:onSwipe(nil, { direction = "west" })
+        end
+        T.eq(sheet.page, #sheet.pages, "swiping walks to the last page and stops there")
+        sheet:onSwipe(nil, { direction = "east" })
+        T.eq(sheet.page, #sheet.pages - 1)
+        local short = require("booksheet"):new{ entry = { title = "Short" }, title = "Short",
+                                                 description = "Brief." }
+        T.eq(#short.pages, 1)
+        UIManager.setDirty = dirty
+    end)
     T.it("removing a book the server holds keeps its position and highlights", function()
         DATASETS["mixed with positions"]()
         local lib = quiet(require("libraryscreen"):new{ plugin = plugin() })
