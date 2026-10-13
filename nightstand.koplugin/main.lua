@@ -7,7 +7,6 @@ not on this device are marked; everything else is a normal KOReader file.
 @module koplugin.Nightstand
 --]]--
 local MultiInputDialog = require("ui/widget/multiinputdialog")
-local NetworkMgr = require("ui/network/manager")
 local UIManager = require("ui/uimanager")
 local Dialogs = require("dialogs")
 local WidgetContainer = require("ui/widget/container/widgetcontainer")
@@ -82,6 +81,7 @@ end
 
 function Nightstand:onCloseDocument()
     if self.sync then self.sync:leaving() end
+    Books:invalidate()
 end
 
 function Nightstand:onSuspend()
@@ -104,22 +104,16 @@ end
 
 --- Discover fetches from Hardcover the first time, when online; after that
 --- it shows what it has until the refresh button in Discover is used.
-function Nightstand:openDiscover(force)
+function Nightstand:openDiscover()
     local Discover = require("discover")
-    local data = Discover:load()
-    -- fetched once and kept; the refresh button in Discover fetches anew
-    if (not data or force) and NetworkMgr:isOnline() then
-        local working = Dialogs.working(_("Fetching recommendations from Hardcover…"))
-        local current = Books:current(Books:list(Settings:booksDir()))
-        local ok, err = Discover:refresh(current and current.title)
-        if ok then Discover:markFinished(Books:list(Settings:booksDir())) end
-        UIManager:close(working)
-        if not ok and not data then
+    local DiscoverScreen = require("discoverscreen")
+    if not Discover:load() and Net.isOnline() then
+        local ok, err = DiscoverScreen.fetch(Books:list(Settings:booksDir()))
+        if not ok then
             Dialogs.note(T(_("Could not reach Hardcover.\n%1"), tostring(err)))
             return
         end
     end
-    local DiscoverScreen = require("discoverscreen")
     if not Discover:load() then
         Dialogs.note(DiscoverScreen.emptyMessage())
         return
@@ -150,8 +144,7 @@ function Nightstand:openAsHome()
     UIManager:nextTick(function()
         self:open()
         -- first run: fetch the library rather than greet the user with nothing
-        if Catalog:count() == 0 and Settings:get("server") ~= ""
-           and NetworkMgr:isOnline() then
+        if Catalog:count() == 0 and Settings:get("server") ~= "" and Net.isOnline() then
             self:refreshCatalogue()
             if shown_home then shown_home:reload() end
         end
@@ -160,7 +153,7 @@ end
 
 function Nightstand:open()
     if Settings:booksDir() == "" then
-        Dialogs.note(_("Set a books folder first, under Tools > Nightstand."))
+        Dialogs.note(_("Set a books folder first, in Settings."))
         return
     end
     -- a Home left open underneath (the file browser was created over it)
@@ -193,7 +186,7 @@ end
 --- Pull the CWA catalogue (quick, shown as busy), then fetch series,
 --- covers and reading positions in the background while the screens stay
 --- usable.
-function Nightstand:refreshCatalogue(touchmenu_instance)
+function Nightstand:refreshCatalogue()
     local working = Dialogs.working(_("Refreshing catalogue…"))
     local entries, err = Catalog:refresh()
     UIManager:close(working)
@@ -202,7 +195,6 @@ function Nightstand:refreshCatalogue(touchmenu_instance)
         return
     end
     Availability:invalidate()
-    if touchmenu_instance then touchmenu_instance:updateItems() end
     Catalog:refreshSeries()
     self:refreshInBackground(Books:list(Settings:booksDir()))
 end
@@ -227,15 +219,11 @@ function Nightstand:refreshInBackground(shelf, positions_only)
     })
 end
 
---- While background work runs, the visible screen redraws as results arrive.
-local function redrawWhileLoading(final)
-    for _index, screen in ipairs({ shown_home }) do
-        if screen and UIManager:isWidgetShown(screen) then
-            if final then screen:reload() else screen:refresh() end
-        end
-    end
+--- While background work runs, Home redraws as results arrive.
+Background.on_progress = function(final)
+    if not (shown_home and UIManager:isWidgetShown(shown_home)) then return end
+    if final then shown_home:reload() else shown_home:refresh() end
 end
-Background.on_progress = redrawWhileLoading
 
 --- The CWA server, its login, and the folder books go to. `on_saved` runs
 --- after Save (the welcome screen goes on from there).
@@ -268,7 +256,6 @@ function Nightstand:editServer(on_saved)
                 end
                 Settings:set("books_dir", dir)
                 if not had_server and Settings:get("server") ~= "" then require("setup").serverAdded() end
-                Availability:invalidate()
                 UIManager:close(dialog)
                 self:syncChanged()
                 if on_saved then on_saved() end
@@ -279,6 +266,8 @@ function Nightstand:editServer(on_saved)
     dialog:onShowKeyboard()
 end
 
+--- Under Tools: a way in, and the one choice Settings does not hold. Everything
+--- else is edited in Settings.
 function Nightstand:addToMainMenu(menu_items)
     menu_items.nightstand = {
         text = MENU_TEXT,
@@ -286,7 +275,6 @@ function Nightstand:addToMainMenu(menu_items)
         sub_item_table = {
             {
                 text = _("Open Nightstand"),
-                keep_menu_open = false,
                 callback = function() self:open() end,
             },
             {
@@ -294,61 +282,10 @@ function Nightstand:addToMainMenu(menu_items)
                 help_text = _([[Shows the home screen whenever the file browser would appear: at startup and after closing a book. Close it to reach the file browser underneath.]]),
                 checked_func = function() return Settings:get("replace_file_browser") end,
                 callback = function() Settings:toggle("replace_file_browser") end,
-                separator = true,
             },
             {
-                text_func = function()
-                    local server = Settings:get("server")
-                    return T(_("Server: %1"),
-                             server ~= "" and server or _("not set"))
-                end,
-                keep_menu_open = true,
-                callback = function() self:editServer() end,
-            },
-            {
-                text_func = function()
-                    local dir = Settings:booksDir()
-                    return T(_("Books folder: %1"), dir ~= "" and dir or _("not set"))
-                end,
-                keep_menu_open = true,
-                callback = function() self:editServer() end,
-            },
-            {
-                text_func = function()
-                    local n = Catalog:count()
-                    return n > 0 and T(_("Refresh catalogue (%1 books)"), n)
-                                  or _("Refresh catalogue")
-                end,
-                keep_menu_open = true,
-                callback = function(touchmenu_instance)
-                    self:refreshCatalogue(touchmenu_instance)
-                end,
-            },
-            {
-                text = _("Update reading positions when the device wakes"),
-                checked_func = function() return Settings:get("refresh_on_wake") end,
-                callback = function() Settings:toggle("refresh_on_wake") end,
-                separator = true,
-            },
-            {
-                text = _("Download over Wi-Fi only"),
-                help_text = _("On a phone, books and covers are not downloaded over mobile data."),
-                checked_func = function() return Settings:get("wifi_only") end,
-                callback = function() Settings:toggle("wifi_only") end,
-                separator = true,
-            },
-            {
-                text_func = function()
-                    Availability:ensure(Settings:booksDir())
-                    return T(_("Books on this device: %1"), Availability:count())
-                end,
-                keep_menu_open = true,
-                callback = function(touchmenu_instance)
-                    Availability:invalidate()
-                    Availability:ensure(Settings:booksDir())
-                    if touchmenu_instance then touchmenu_instance:updateItems() end
-                end,
-                help_text = _("Tap to rebuild the index."),
+                text = _("Settings…"),
+                callback = function() self:openSettings() end,
             },
         },
     }

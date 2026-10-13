@@ -28,12 +28,12 @@ end
 function Vendors.all()
     local list = {}
     for _index, v in ipairs(Vendors.BUILT_IN) do table.insert(list, v) end
-    for _index, v in ipairs(Settings:get("custom_vendors") or {}) do table.insert(list, v) end
+    for _index, v in ipairs(Settings:get("custom_vendors")) do table.insert(list, v) end
     return list
 end
 
 function Vendors.current()
-    local id = Settings:get("vendor") or "kobo"
+    local id = Settings:get("vendor")
     for _index, v in ipairs(Vendors.all()) do
         if v.id == id then return v end
     end
@@ -56,7 +56,7 @@ function Vendors.add(name, url)
     if not url:match("{query}") and not url:match("{title}") then
         return false, _("Put {query} (or {title} and {author}) where the search words go.")
     end
-    local custom = Settings:get("custom_vendors") or {}
+    local custom = Settings:get("custom_vendors")
     local id = "custom-" .. os.time()
     table.insert(custom, { id = id, name = name, url = url })
     Settings:set("custom_vendors", custom)

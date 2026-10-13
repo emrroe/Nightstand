@@ -9,12 +9,10 @@ to the reader's chosen shop or library. Covers for the page being shown are
 fetched in the background.
 --]]--
 
-local CenterContainer = require("ui/widget/container/centercontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
 local Size = require("ui/size")
-local TextBoxWidget = require("ui/widget/textboxwidget")
 local TopContainer = require("ui/widget/container/topcontainer")
 local UIManager = require("ui/uimanager")
 local Dialogs = require("dialogs")
@@ -55,7 +53,7 @@ local LISTS = {
 
 function DiscoverScreen:load()
     self.page = self.page or 1
-    self.list = self.list or Settings:get("discover_list") or "recs"
+    self.list = self.list or Settings:get("discover_list")
     self:loadView()
     self.library = Books:list(Settings:booksDir())
 end
@@ -133,8 +131,6 @@ function DiscoverScreen:build()
     self:fetchPageCovers()
 end
 
---- "Discover" with the view dropdown and the Want to read count on the
---- right; inside Want to read, "‹ Want to read" and the way back.
 --- "Discover" with the view dropdown, the Want to read count and refresh
 --- on the right; inside Want to read, "‹ Want to read" and the way back.
 function DiscoverScreen:titleBand(h, band_y)
@@ -216,7 +212,7 @@ function DiscoverScreen:listBand(h, band_y)
             _("No suggestions here yet."), _("Refresh"), function() self:fetchAgain() end)
     end
     local first = (self.page - 1) * self.per_page + 1
-    local tap = function(entry) self:openBook(entry) end
+    local tap = function(entry) self:showDetails(entry) end
     local hold = function(entry) self:holdBook(entry) end
     local body
     if self.view == "list" then
@@ -238,13 +234,19 @@ function DiscoverScreen:listBand(h, band_y)
     return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, body }
 end
 
+--- "★ 4.2", the year and the length, as far as Hardcover knows them.
+local function numbers(entry)
+    local out = {}
+    if entry.rating then table.insert(out, string.format("★ %.1f", entry.rating)) end
+    if entry.year then table.insert(out, tostring(entry.year)) end
+    if entry.pages then table.insert(out, T(_("%1 pages"), entry.pages)) end
+    return out
+end
+
 --- What a list row says about a book: rating, year, length, and whether the
 --- library already has it.
 function DiscoverScreen:rowSpec(entry)
-    local facts = {}
-    if entry.rating then table.insert(facts, string.format("★ %.1f", entry.rating)) end
-    if entry.year then table.insert(facts, tostring(entry.year)) end
-    if entry.pages then table.insert(facts, T(_("%1 pages"), entry.pages)) end
+    local facts = numbers(entry)
     if entry.match then
         table.insert(facts, entry.match.on_device and _("on this device") or _("in your library"))
     elseif entry.wanted and self.list ~= "want" then
@@ -283,13 +285,6 @@ function DiscoverScreen:onClose()
     return NightstandScreen.onClose(self)
 end
 
-function DiscoverScreen:turnPage(delta)
-    local page = self.page + delta
-    if page < 1 or page > self.pages then return end
-    self.page = page
-    self:refresh()
-end
-
 --- Covers for the rows on screen, fetched after the page is drawn.
 function DiscoverScreen:fetchPageCovers()
     if not require("net").mayDownload() then return end
@@ -313,17 +308,24 @@ function DiscoverScreen:fetchPageCovers()
     })
 end
 
+--- Fetch the recommendations anew under a working note: `library` tells
+--- which book is being read, and which suggestions were finished meanwhile.
+--- Returns ok, err.
+function DiscoverScreen.fetch(library)
+    local working = Dialogs.working(_("Fetching recommendations from Hardcover…"))
+    local current = Books:current(library)
+    local ok, err = Discover:refresh(current and current.title)
+    if ok then Discover:markFinished(library) end
+    UIManager:close(working)
+    return ok, err
+end
+
 function DiscoverScreen:fetchAgain()
-    local NetworkMgr = require("ui/network/manager")
-    if not NetworkMgr:isOnline() then
+    if not require("net").isOnline() then
         Dialogs.note(_("Not connected. Showing what was fetched last time."))
         return
     end
-    local working = Dialogs.working(_("Fetching recommendations from Hardcover…"))
-    local current = Books:current(self.library)
-    local ok, err = Discover:refresh(current and current.title)
-    if ok then Discover:markFinished(self.library) end
-    UIManager:close(working)
+    local ok, err = DiscoverScreen.fetch(self.library)
     if not ok then
         Dialogs.note(T(_("Could not reach Hardcover.\n%1"), tostring(err)))
         return
@@ -334,13 +336,10 @@ end
 --- The book's details over the list, with its cover, and what can be done
 --- with it: read it when the library has it, put it on or take it off the
 --- Want to read list, mark it read or unread on Hardcover, or find it.
-function DiscoverScreen:openBook(entry)
+function DiscoverScreen:showDetails(entry)
     local facts = {}
-    local numbers = {}
-    if entry.rating then table.insert(numbers, string.format("★ %.1f", entry.rating)) end
-    if entry.year then table.insert(numbers, tostring(entry.year)) end
-    if entry.pages then table.insert(numbers, T(_("%1 pages"), entry.pages)) end
-    if #numbers > 0 then table.insert(facts, table.concat(numbers, " · ")) end
+    local line = table.concat(numbers(entry), " · ")
+    if line ~= "" then table.insert(facts, line) end
     local status = Discover:status(entry.hc_id)
     if status == Discover.READ then
         table.insert(facts, _("Read"))
@@ -375,7 +374,7 @@ end
 
 function DiscoverScreen:holdBook(entry)
     -- a book the library has opens its details instead of a shop
-    if entry.match then return self:openBook(entry) end
+    if entry.match then return self:showDetails(entry) end
     Vendors.show(entry)
 end
 
@@ -383,16 +382,10 @@ end
 function DiscoverScreen:setStatus(entry, status)
     local ok, err = Discover:setStatus(entry.hc_id, status)
     if not ok then
-        UIManager:show(require("ui/widget/infomessage"):new{
-            text = T(_("Hardcover didn't accept that.\n%1"), tostring(err)),
-        })
+        Dialogs.note(T(_("Hardcover didn't accept that.\n%1"), tostring(err)))
         return
     end
     self:reload()
-end
-
-function DiscoverScreen:toggleWanted(entry)
-    self:setStatus(entry, not entry.wanted and Discover.WANT or nil)
 end
 
 --- Shown instead of the screen when nothing could be loaded.

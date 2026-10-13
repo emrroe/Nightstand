@@ -226,7 +226,7 @@ function Discover:isWanted(hc_id)
     return entry ~= nil and entry.status == Discover.WANT
 end
 
---- Add to or remove from Want to read. Returns ok, err.
+--- The Hardcover shelf a book is on, or nil.
 function Discover:status(hc_id)
     local data = self:load()
     local entry = data and data.library[hc_id]
@@ -271,10 +271,6 @@ function Discover:setStatus(hc_id, status)
     return true
 end
 
-function Discover:setWanted(hc_id, wanted)
-    return self:setStatus(hc_id, wanted and Discover.WANT or nil)
-end
-
 --- With the setting on: books the reader finished in the library that sit
 --- in the suggestions get marked read on Hardcover, so they stop coming
 --- back. Returns how many were marked.
@@ -303,14 +299,11 @@ end
 -- matching against the CWA catalogue -----------------------------------------------
 
 local function norm(str)
-    str = (str or ""):lower():gsub("&#39;", "'")
-    str = str:gsub("^the ", ""):gsub("[^%w]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-    return str
+    return (require("text").norm(str):gsub("^the ", ""))
 end
 
 local function surname(author)
-    local first = (author or ""):match("^[^,]+") or ""
-    return (first:match("(%S+)%s*$") or ""):lower()
+    return require("text").surname(author):lower()
 end
 
 --- The catalogue entry for a Hardcover book, when the library already has it.

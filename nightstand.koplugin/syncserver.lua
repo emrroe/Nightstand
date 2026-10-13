@@ -24,9 +24,6 @@ local SyncServer = {
 --- positions stay on the device, or when the chosen server lacks a login.
 function SyncServer.current()
     local kind = Settings:get("sync_service")
-    if kind == nil then
-        kind = Settings:get("server") ~= "" and "cwa" or "off"
-    end
     if kind == "cwa" then
         local server = Settings:get("server"):gsub("/+$", "")
         local user, password = require("catalog").credentials()
@@ -34,9 +31,9 @@ function SyncServer.current()
         return { kind = "cwa", url = server .. "/kosync", username = user, password = password }
     end
     if kind == "public" or kind == "custom" then
-        local url = kind == "public" and SyncServer.PUBLIC or Settings:get("sync_url") or ""
+        local url = kind == "public" and SyncServer.PUBLIC or Settings:get("sync_url")
         local user, key = Settings:get("sync_username"), Settings:get("sync_userkey")
-        if url == "" or not user or user == "" or not key then return { kind = "off", wanted = kind } end
+        if url == "" or user == "" or not key then return { kind = "off", wanted = kind } end
         return { kind = kind, url = url:gsub("/+$", ""), username = user, userkey = key }
     end
     return { kind = "off" }

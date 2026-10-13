@@ -32,7 +32,7 @@ function Setup.adopt()
         Settings:set("username", cwa.username)
         Settings:set("password", cwa.password)
     end
-    if Settings:get("sync_service") ~= nil then return end
+    if Settings:has("sync_service") then return end
     local ko = G_reader_settings:readSetting("kosync") or {}
     if Settings:get("server") ~= "" then
         Settings:set("sync_service", "cwa")
@@ -84,7 +84,7 @@ end
 --- A server entered where there was none: positions sync through it, unless
 --- the reader already chose another sync server.
 function Setup.serverAdded()
-    if Settings:get("sync_service") == "off" or Settings:get("sync_service") == nil then
+    if Settings:get("sync_service") == "off" then
         Settings:set("sync_service", "cwa")
     end
 end

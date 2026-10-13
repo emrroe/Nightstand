@@ -10,7 +10,6 @@ local Background = {
     queue = {},
     running = false,
     current = nil,   -- the job being worked on, for the status line
-    generation = 0,  -- bumped by cancel, so a step already scheduled stops
 }
 
 -- the screen to redraw while work arrives; set by whoever shows it
@@ -23,13 +22,11 @@ end
 
 local step
 
-local function continue(gen, delay)
-    local next_step = function() step(gen) end
-    if delay then UIManager:scheduleIn(delay, next_step) else UIManager:nextTick(next_step) end
+local function continue(delay)
+    if delay then UIManager:scheduleIn(delay, step) else UIManager:nextTick(step) end
 end
 
-step = function(gen)
-    if gen ~= Background.generation then return end
+step = function()
     local job = Background.queue[1]
     if not job then return finish() end
     local item = table.remove(job.items, 1)
@@ -37,7 +34,7 @@ step = function(gen)
         table.remove(Background.queue, 1)
         if job.on_done then pcall(job.on_done) end
         if Background.on_progress then Background.on_progress(false) end
-        return continue(gen)
+        return continue()
     end
     Background.current = job
     local ok, err = pcall(job.work, item)
@@ -49,7 +46,7 @@ step = function(gen)
         Background.on_progress(false)
     end
     -- a short pause lets taps and repaints through between steps
-    continue(gen, 0.05)
+    continue(0.05)
 end
 
 --- Queue `work(item)` for each item. `opts`: label (for the status line),
@@ -68,7 +65,7 @@ function Background.run(items, work, opts)
     })
     if not Background.running then
         Background.running = true
-        continue(Background.generation)
+        continue()
     end
 end
 
@@ -77,13 +74,6 @@ function Background.status()
     local job = Background.running and Background.current
     if not job or not job.label then return nil end
     return string.format("%s %d/%d", job.label, job.done, job.total)
-end
-
---- Drop everything queued, e.g. when the server changed.
-function Background.cancel()
-    Background.queue = {}
-    Background.generation = Background.generation + 1
-    finish()
 end
 
 return Background

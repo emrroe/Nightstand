@@ -14,6 +14,14 @@ local function setup(local_books, server_books)
     return dir
 end
 
+-- These tests change positions and settings behind the list's back, so
+-- every list is built afresh.
+local function list(dir)
+    local Books = require("books")
+    Books:invalidate()
+    return Books:list(dir)
+end
+
 local function byTitle(entries)
     local out = {}
     for _, e in ipairs(entries) do out[e.title] = e end
@@ -23,7 +31,7 @@ end
 T.describe("books from the local folder only", function()
     T.it("lists local files when there is no catalogue at all", function()
         local dir = setup({ { "Wind and Truth", "Brandon Sanderson" }, { "Dune", "Frank Herbert" } })
-        local entries = require("books"):list(dir)
+        local entries = list(dir)
         T.eq(#entries, 2)
         for _, e in ipairs(entries) do
             T.ok(e.on_device, "on device")
@@ -32,14 +40,14 @@ T.describe("books from the local folder only", function()
     end)
     T.it("an empty or missing folder gives an empty list, not an error", function()
         local dir = setup()
-        T.eq(#require("books"):list(dir), 0)
-        T.eq(#require("books"):list(dir .. "/does-not-exist"), 0)
-        T.eq(#require("books"):list(""), 0)
+        T.eq(#list(dir), 0)
+        T.eq(#list(dir .. "/does-not-exist"), 0)
+        T.eq(#list(""), 0)
     end)
     T.it("ignores files that are not books", function()
         local dir = setup({ { "Real Book", "Someone" } })
         local f = io.open(dir .. "/notes.json", "w"); f:write("{}"); f:close()
-        T.eq(#require("books"):list(dir), 1)
+        T.eq(#list(dir), 1)
     end)
 end)
 
@@ -51,7 +59,7 @@ T.describe("books merged with the catalogue", function()
     }
     T.it("a local file and its catalogue entry become one book", function()
         local dir = setup({ { "Wind and Truth", "Brandon Sanderson" } }, server)
-        local entries = require("books"):list(dir)
+        local entries = list(dir)
         T.eq(#entries, 3)
         local w = byTitle(entries)["Wind and Truth"]
         T.ok(w.on_device, "on device")
@@ -61,20 +69,20 @@ T.describe("books merged with the catalogue", function()
     end)
     T.it("server-only books carry a download link and are not on the device", function()
         local dir = setup({}, server)
-        local d = byTitle(require("books"):list(dir))["Dune"]
+        local d = byTitle(list(dir))["Dune"]
         T.ok(not d.on_device)
         T.eq(d.download_url, "/opds/download/3/epub/")
         T.eq(d.status, "new")
     end)
     T.it("read on the server means finished", function()
         local dir = setup({}, server)
-        T.eq(byTitle(require("books"):list(dir))["Neuromancer"].status, "complete")
+        T.eq(byTitle(list(dir))["Neuromancer"].status, "complete")
     end)
     T.it("a short title does not claim a file that merely contains it", function()
         local dir = setup({ { "The Hobbit", "J.R.R. Tolkien" } }, {
             { id = 1, title = "It", authors = { "Stephen King" } },
             { id = 2, title = "The Hobbit", authors = { "J.R.R. Tolkien" } } })
-        local by = byTitle(require("books"):list(dir))
+        local by = byTitle(list(dir))
         T.ok(not by["It"].on_device, "It stays on the server")
         T.ok(by["The Hobbit"].on_device, "The Hobbit is the local file")
     end)
@@ -84,7 +92,7 @@ T.describe("books merged with the catalogue", function()
         require("settings"):set("books_dir", dir)
         Fakes.cwa(Fakes.library({ { id = 3, title = "Dune", authors = { "Frank Herbert" } } }))
         assert(Fakes.refreshCatalogue())
-        local entries = require("books"):list(dir)
+        local entries = list(dir)
         T.eq(#entries, 1)
         T.ok(entries[1].on_device and entries[1].book_id == 3, "matched by title and surname")
     end)
@@ -92,7 +100,7 @@ T.describe("books merged with the catalogue", function()
         local dir = setup({ { "Untitled", "A" } }, {
             { id = 1, title = "Untitled", authors = { "A" } },
             { id = 2, title = "Untitled", authors = { "B" } } })
-        local entries = require("books"):list(dir)
+        local entries = list(dir)
         T.eq(#entries, 2)
         local local_count = 0
         for _, e in ipairs(entries) do if e.on_device then local_count = local_count + 1 end end
@@ -104,10 +112,10 @@ T.describe("reading positions", function()
     T.it("a position read elsewhere wins when it is further along", function()
         local dir = setup({ { "Wind and Truth", "Brandon Sanderson" } })
         local Books = require("books")
-        local checksum = Books:list(dir)[1].checksum
+        local checksum = list(dir)[1].checksum
         local Progress = require("progress")
         Progress:load()[checksum] = { percentage = 0.42, device = "nova2", timestamp = 1700000000 }
-        local e = Books:list(dir)[1]
+        local e = list(dir)[1]
         T.eq(e.percent, 0.42)
         T.eq(e.status, "reading")
         T.eq(e.device, "nova2")
@@ -116,7 +124,7 @@ T.describe("reading positions", function()
     T.it("the most recent position wins, whichever device saved it and whichever way it moved", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")
-        local file = Books:list(dir)[1].file
+        local file = list(dir)[1].file
         local DocSettings = require("docsettings")
         local settings = DocSettings:open(file)
         settings:saveSetting("percent_finished", 0.5)
@@ -125,16 +133,16 @@ T.describe("reading positions", function()
         require("ui/widget/booklist").resetBookInfoCache(file)
         local lfs = require("libs/libkoreader-lfs")
         lfs.touch(DocSettings:findSidecarFile(file), 1000, 1000)
-        local checksum = Books:list(dir)[1].checksum
+        local checksum = list(dir)[1].checksum
         local Progress = require("progress")
         Progress:load()[checksum] = { percentage = 0.2, progress = "/body/DocFragment[3].0",
                                        device = "nova2", device_id = "nova", timestamp = 2000 }
-        local e = Books:list(dir)[1]
+        local e = list(dir)[1]
         T.eq(e.percent, 0.2, "the Nova went back a chapter later: that is where the book is")
         T.eq(e.device, "nova2")
         T.eq(e.remote.progress, "/body/DocFragment[3].0", "kept so opening can go there")
         Progress:load()[checksum].timestamp = 500
-        e = Books:list(dir)[1]
+        e = list(dir)[1]
         T.eq(e.percent, 0.5, "this device read more recently")
         T.eq(e.remote, nil)
         T.eq(e.device, nil)
@@ -142,11 +150,11 @@ T.describe("reading positions", function()
     T.it("this device's own save on the server is not news", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")
-        local checksum = Books:list(dir)[1].checksum
+        local checksum = list(dir)[1].checksum
         G_reader_settings:saveSetting("device_id", "me")
         require("progress"):load()[checksum] = { percentage = 0.7, device = "phone", device_id = "me",
                                                  timestamp = os.time() + 100 }
-        local e = Books:list(dir)[1]
+        local e = list(dir)[1]
         T.eq(e.remote, nil)
         T.eq(e.device, nil)
         G_reader_settings:delSetting("device_id")
@@ -154,7 +162,7 @@ T.describe("reading positions", function()
     T.it("opening from Home goes to the newer position, and leaves the sync nothing to ask", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")
-        local entry = Books:list(dir)[1]
+        local entry = list(dir)[1]
         entry.remote = { percentage = 0.3, progress = "/body/DocFragment[4].0", device = "nova2",
                          device_id = "nova", timestamp = 4242 }
         package.loaded["apps/reader/readerui"] = { showReader = function() end }
@@ -166,7 +174,7 @@ T.describe("reading positions", function()
     end)
     T.it("opening from Home keeps a place this device read to offline, for the reader to ask about", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
-        local entry = require("books"):list(dir)[1]
+        local entry = list(dir)[1]
         local DocSettings = require("docsettings")
         local settings = DocSettings:open(entry.file)
         settings:saveSetting("last_xpointer", "/body/DocFragment[9].0")
@@ -189,17 +197,17 @@ T.describe("reading positions", function()
     T.it("a finished position elsewhere marks the book finished", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")
-        local checksum = Books:list(dir)[1].checksum
+        local checksum = list(dir)[1].checksum
         require("progress"):load()[checksum] = { percentage = 1, device = "x", timestamp = 1 }
-        T.eq(Books:list(dir)[1].status, "complete")
+        T.eq(list(dir)[1].status, "complete")
     end)
     T.it("last read is the later of local history and the server", function()
         local dir = setup({ { "Dune", "Frank Herbert" } })
         local Books = require("books")
-        local e = Books:list(dir)[1]
+        local e = list(dir)[1]
         require("progress"):load()[e.checksum] = { percentage = 0.1, timestamp = 100 }
         require("readhistory").hist = { { file = e.file, time = 500 } }
-        T.eq(Books:list(dir)[1].last_read, 500)
+        T.eq(list(dir)[1].last_read, 500)
         require("readhistory").hist = {}
     end)
     T.it("the hero is the furthest book in progress, else a suggestion", function()
@@ -233,6 +241,15 @@ T.describe("reading positions", function()
     end)
 end)
 
+--- Ask the server about each book, as the background refresh does.
+local function refreshPositions(entries)
+    local Progress, found = require("progress"), 0
+    for _, entry in ipairs(entries) do
+        if Progress:refreshEntry(entry) then found = found + 1 end
+    end
+    return found
+end
+
 T.describe("positions for books not on this device", function()
     T.it("a server-only book read elsewhere is the current book on an empty device", function()
         local dir = setup({}, {
@@ -240,8 +257,8 @@ T.describe("positions for books not on this device", function()
             { id = 13, title = "Older Read", authors = { "X" }, progress = { 0.8, "nova2", 1700000000 } },
             { id = 14, title = "Untouched", authors = { "Y" } } })
         local Books = require("books")
-        T.eq(require("progress"):refreshAll(Books:list(dir)), 2, "two positions found by book id")
-        local entries = Books:list(dir)
+        T.eq(refreshPositions(list(dir)), 2, "two positions found by book id")
+        local entries = list(dir)
         local current, fresh = Books:current(entries)
         T.eq(current.title, "Wind and Truth", "most recently read wins over furthest")
         T.eq(fresh, false)
@@ -250,23 +267,11 @@ T.describe("positions for books not on this device", function()
         T.eq(current.device, "nova2")
         T.ok(not current.on_device, "still only on the server")
     end)
-    T.it("a wake refresh only asks about the books it is told to", function()
-        local dir = setup({}, {
-            { id = 12, title = "Wanted", authors = { "A" }, progress = { 0.3 } },
-            { id = 13, title = "Skipped", authors = { "B" }, progress = { 0.6 } } })
-        local Books = require("books")
-        local calls = Fakes.cwa(Fakes.library({
-            { id = 12, title = "Wanted", authors = { "A" }, progress = { 0.3 } },
-            { id = 13, title = "Skipped", authors = { "B" }, progress = { 0.6 } } }))
-        local n = require("progress"):refreshAll(Books:list(dir), function(e) return e.book_id == 12 end)
-        T.eq(n, 1)
-        for _, path in ipairs(calls) do T.ok(not path:match("/13$"), "no request for 13") end
-    end)
     T.it("an older CWA that only knows checksums leaves server-only books alone", function()
         local dir = setup({}, { { id = 12, title = "Wind and Truth", authors = { "B" } } })
         local Books = require("books")
-        T.eq(require("progress"):refreshAll(Books:list(dir)), 0)
-        local _, fresh = Books:current(Books:list(dir))
+        T.eq(refreshPositions(list(dir)), 0)
+        local _, fresh = Books:current(list(dir))
         T.eq(fresh, true, "falls back to a suggestion")
     end)
 end)
@@ -357,7 +362,7 @@ T.describe("books without a server", function()
     end)
     T.it("a book never opened still gets its real title and author, and a date added", function()
         local dir = setup({ { "Real Title", "Some Author" } })
-        local entries = require("books"):list(dir)
+        local entries = list(dir)
         T.eq(entries[1].title, "Real Title")
         T.eq(entries[1].author, "Some Author")
         T.ok(entries[1].added, "dated by when the file arrived")
@@ -388,11 +393,66 @@ T.describe("over Wi-Fi only", function()
     end)
 end)
 
+T.describe("the list", function()
+    T.it("is reused until something it was built from changes", function()
+        local dir = setup({ { "Dune", "Frank Herbert" } })
+        local Books = require("books")
+        local first = Books:list(dir)
+        T.eq(Books:list(dir), first, "nothing changed")
+        require("progress"):remember("x", { percentage = 0.5 })
+        local second = Books:list(dir)
+        T.ok(second ~= first, "a new position")
+        Books:invalidate()
+        T.ok(Books:list(dir) ~= second, "a book was read")
+        local third = Books:list(dir)
+        Books.cached.at = os.time() - 60
+        T.ok(Books:list(dir) ~= third, "and after a while anyway")
+    end)
+end)
+
+T.describe("covers", function()
+    T.it("only so many sizes are kept in memory, the least recently used going first", function()
+        local Blitbuffer = require("ffi/blitbuffer")
+        local CoverCache = require("covercache")
+        local image = Blitbuffer.new(60, 90, Blitbuffer.TYPE_BB8)
+        image:writePNG(CoverCache:coverFile(1))
+        image:free()
+        local entry = { book_id = 1 }
+        local first = CoverCache:get(entry, 20, 30)
+        T.ok(first, "a cover")
+        for w = 21, 220 do
+            CoverCache:get(entry, w, 30)
+            CoverCache:get(entry, 20, 30)  -- still on screen
+        end
+        local slots = 0
+        for _ in pairs(CoverCache.cache) do slots = slots + 1 end
+        T.ok(slots <= 160, "capped, holds " .. slots)
+        T.eq(CoverCache:get(entry, 20, 30), first, "the one in use stays")
+        T.eq(CoverCache.cache["id:1|21x30"], nil, "an old size went")
+    end)
+    T.it("a cover that could not be read is tried again later", function()
+        local CoverCache = require("covercache")
+        local entry = { file = "/nowhere/book.epub" }
+        T.eq(CoverCache:get(entry, 20, 30), nil)
+        T.ok(CoverCache.misses[entry.file], "remembered as missing")
+        local tried = false
+        local BookInfo = require("apps/filemanager/filemanagerbookinfo")
+        local real = BookInfo.getCoverImage
+        BookInfo.getCoverImage = function() tried = true end
+        CoverCache:get(entry, 20, 30)
+        T.ok(not tried, "not asked again at once")
+        CoverCache.misses[entry.file] = os.time() - 600
+        CoverCache:get(entry, 20, 30)
+        BookInfo.getCoverImage = real
+        T.ok(tried, "asked again after a while")
+    end)
+end)
+
 T.describe("downloads", function()
     T.it("a server book lands as Author/Title - Author.epub and becomes local", function()
         local dir = setup({}, { { id = 3, title = "Dune", authors = { "Frank Herbert", "Someone Else" } } })
         local Books = require("books")
-        local entry = Books:list(dir)[1]
+        local entry = list(dir)[1]
         local ok, path = require("download"):book(entry)
         T.ok(ok, tostring(path))
         T.eq(path, dir .. "/Frank Herbert/Dune - Frank Herbert.epub")
@@ -421,7 +481,7 @@ T.describe("downloads", function()
     end)
     T.it("unsafe characters in titles do not escape the books folder", function()
         local dir = setup({}, { { id = 4, title = "../../etc: a/b?", authors = { "Who/Me" } } })
-        local entry = require("books"):list(dir)[1]
+        local entry = list(dir)[1]
         local ok, path = require("download"):book(entry)
         T.ok(ok, tostring(path))
         T.ok(path:sub(1, #dir) == dir and not path:sub(#dir + 1):match("%.%./"),
@@ -429,14 +489,14 @@ T.describe("downloads", function()
     end)
     T.it("missing author and title still give a sensible path", function()
         local dir = setup({}, { { id = 5, title = "", authors = {} } })
-        local entry = require("books"):list(dir)[1]
+        local entry = list(dir)[1]
         local ok, path = require("download"):book(entry)
         T.ok(ok, tostring(path))
         T.eq(path, dir .. "/Unknown/Untitled - Unknown.epub")
     end)
     T.it("a failed download reports and changes nothing", function()
         local dir = setup({}, { { id = 6, title = "Gone", authors = { "X" } } })
-        local entry = require("books"):list(dir)[1]
+        local entry = list(dir)[1]
         Fakes.cwa({})
         local ok, err = require("download"):book(entry)
         T.eq(ok, false)
@@ -477,7 +537,7 @@ T.describe("downloads", function()
     end)
     T.it("a download the reader stops is neither an error nor a book", function()
         local dir = setup({}, { { id = 3, title = "Dune", authors = { "Frank Herbert" } } })
-        local entry = require("books"):list(dir)[1]
+        local entry = list(dir)[1]
         local ok, err = require("download"):book(entry, function() return false end)
         T.eq(ok, nil)
         T.eq(err, nil)

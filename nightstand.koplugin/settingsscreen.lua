@@ -18,7 +18,7 @@ local Size = require("ui/size")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
-local NetworkMgr = require("ui/network/manager")
+local Net = require("net")
 local Availability = require("availability")
 local Catalog = require("catalog")
 local Hardcover = require("hardcover")
@@ -84,14 +84,15 @@ local SYNC_LABELS = {
 }
 
 function SettingsScreen:syncRows()
-    local chosen = Settings:get("sync_service") or "off"
+    local chosen = Settings:get("sync_service")
     local current = SyncServer.current()
     local rows = {
         { label = _("Reading positions"), value = SYNC_LABELS[chosen] or chosen,
           action = function() self:chooseSync() end },
     }
     if chosen == "custom" then
-        table.insert(rows, { label = _("Server address"), value = Settings:get("sync_url") or _("not set"),
+        local url = Settings:get("sync_url")
+        table.insert(rows, { label = _("Server address"), value = url ~= "" and url or _("not set"),
                              action = function() self:syncAccount("custom") end })
     end
     if chosen == "public" or chosen == "custom" then
@@ -112,7 +113,7 @@ function SettingsScreen:chooseSync()
         { id = "custom", label = SYNC_LABELS.custom },
         { id = "off", label = _("Off: keep positions on this device") },
     }
-    NightstandScreen.menu(_("Sync reading positions through"), options, Settings:get("sync_service") or "off",
+    NightstandScreen.menu(_("Sync reading positions through"), options, Settings:get("sync_service"),
         function(spec)
             Settings:set("sync_service", spec.id)
             self.plugin:syncChanged()
@@ -128,10 +129,10 @@ function SettingsScreen:syncAccount(kind)
     local MultiInputDialog = require("ui/widget/multiinputdialog")
     local fields = {}
     if kind == "custom" then
-        table.insert(fields, { description = _("Server address"), text = Settings:get("sync_url") or "",
+        table.insert(fields, { description = _("Server address"), text = Settings:get("sync_url"),
                                hint = "https://sync.example.com" })
     end
-    table.insert(fields, { description = _("Username"), text = Settings:get("sync_username") or "" })
+    table.insert(fields, { description = _("Username"), text = Settings:get("sync_username") })
     table.insert(fields, { description = _("Password"), text = "", text_type = "password" })
     local dialog
     local function submit(create)
@@ -140,7 +141,7 @@ function SettingsScreen:syncAccount(kind)
         local user, password = values[#values - 1], values[#values]
         if url == "" or user == "" or password == "" then return end
         UIManager:close(dialog)
-        require("net").whenOnline(function()
+        Net.whenOnline(function()
             local ok, result
             if create then
                 ok, result = SyncServer.register(url, user, password)
@@ -188,7 +189,7 @@ function SettingsScreen:checkForUpdates()
         Dialogs.note(_("This copy of Nightstand runs from a development checkout. Update it with git instead."))
         return
     end
-    require("net").whenOnline(function()
+    Net.whenOnline(function()
         local working = Dialogs.working(_("Checking for updates…"))
         local release, err = Updater.latest()
         UIManager:close(working)
@@ -207,7 +208,7 @@ function SettingsScreen:checkForUpdates()
         self:refresh()
         local notes = release.notes:gsub("\r", "")
         if #notes > 700 then notes = notes:sub(1, 700) .. "…" end
-        require("dialogs").confirm{
+        Dialogs.confirm{
             title = T(_("Nightstand %1 is available"), release.version),
             text = T(_("You have %1.\n\n%2\n\nInstall it now? KOReader restarts afterwards."), current, notes),
             ok_text = _("Update"),
@@ -271,7 +272,7 @@ function SettingsScreen:chooseVendor()
         end })
     end
     table.insert(items, { text = _("Add your own…"), separated = true, callback = function() self:addVendor() end })
-    require("dialogs").menu{ title = _("Find books on"), items = items }
+    Dialogs.menu{ title = _("Find books on"), items = items }
 end
 
 function SettingsScreen:addVendor()
@@ -290,7 +291,7 @@ function SettingsScreen:addVendor()
                 local fields = input:getFields()
                 local ok, err = Vendors.add(fields[1], fields[2])
                 if not ok then
-                    UIManager:show(require("ui/widget/infomessage"):new{ text = err })
+                    Dialogs.note(err)
                     return
                 end
                 UIManager:close(input)
@@ -316,7 +317,7 @@ function SettingsScreen:hardcoverRow()
 end
 
 function SettingsScreen:openLink()
-    NetworkMgr:runWhenOnline(function()
+    Net.whenOnline(function()
         UIManager:show(HardcoverLink:new{
             on_linked = function() self:refresh() end,
         })
@@ -324,13 +325,13 @@ function SettingsScreen:openLink()
 end
 
 function SettingsScreen:confirmUnlink()
-    require("dialogs").confirm{
+    Dialogs.confirm{
         title = _("Disconnect Hardcover?"),
         text = T(_("The account @%1 is disconnected from this device; your recommendations here are cleared."), Hardcover:username() or "?"),
         ok_text = _("Disconnect"),
         ok_callback = function()
             -- offline, the token is only forgotten; it lapses on Hardcover's side
-            if NetworkMgr:isOnline() then Hardcover:unlink() else Hardcover:forget() end
+            if Net.isOnline() then Hardcover:unlink() else Hardcover:forget() end
             -- someone else's recommendations must not linger after a disconnect
             require("discover"):clear()
             self:refresh()
@@ -447,13 +448,6 @@ function SettingsScreen:build()
     add(self:tabsBand(tabs_h, tabs_y), tabs_h)
 
     self:setContent(stack)
-end
-
-function SettingsScreen:turnPage(delta)
-    local page = self.page + delta
-    if page < 1 or page > self.pages then return end
-    self.page = page
-    self:refresh()
 end
 
 function SettingsScreen:rowBand(row, h, band_y, band_x, w)

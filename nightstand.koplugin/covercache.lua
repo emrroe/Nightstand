@@ -16,8 +16,16 @@ local logger = require("logger")
 
 local CoverCache = {
     cache = {},   -- "key|WxH" -> BlitBuffer
-    misses = {},  -- key -> true, for books with no usable cover
+    used = {},    -- "key|WxH" -> when it was last asked for, in asks
+    asks = 0,
+    misses = {},  -- key -> when a book turned out to have no usable cover
 }
+
+-- Enough for a few screens of covers at every size they are drawn at; past
+-- that the least recently used go, and are freed once nothing shows them.
+local MAX_SLOTS = 160
+-- a cover that could not be read is tried again after this long
+local MISS_SECONDS = 300
 
 local function cacheDir()
     local dir = DataStorage:getDataDir() .. "/cache/nightstand"
@@ -90,16 +98,37 @@ local function fill(bb, w, h)
     return RenderImage:scaleBlitBuffer(bb, w, h, true)
 end
 
+local function forgetOldest(cache)
+    local count, oldest = 0, nil
+    for slot in pairs(cache.cache) do
+        count = count + 1
+        if not oldest or cache.used[slot] < cache.used[oldest] then oldest = slot end
+    end
+    if count > MAX_SLOTS then
+        cache.cache[oldest], cache.used[oldest] = nil, nil
+    end
+end
+
+--- The cover `loader` reads, cropped and scaled to `width` x `height` with
+--- rounded corners, made once per size.
 local function scaled(key, cache, loader, width, height)
     local slot = string.format("%s|%dx%d", key, width, height)
-    if cache.cache[slot] then return cache.cache[slot] end
-    if cache.misses[key] then return nil end
-    local bb = loader()
-    if not bb then
-        cache.misses[key] = true
+    cache.asks = cache.asks + 1
+    if cache.cache[slot] then
+        cache.used[slot] = cache.asks
+        return cache.cache[slot]
+    end
+    local missed = cache.misses[key]
+    if missed and os.time() - missed < MISS_SECONDS then return nil end
+    local ok, bb = pcall(loader)
+    if not ok or not bb then
+        cache.misses[key] = os.time()
         return nil
     end
-    cache.cache[slot] = bb
+    cache.misses[key] = nil
+    bb = roundCorners(fill(bb, width, height), math.floor(width * 0.045))
+    cache.cache[slot], cache.used[slot] = bb, cache.asks
+    forgetOldest(cache)
     return bb
 end
 
@@ -110,9 +139,7 @@ function CoverCache:get(entry, width, height)
 
     if entry.file then
         return scaled(entry.file, self, function()
-            local ok, bb = pcall(BookInfo.getCoverImage, BookInfo, nil, entry.file)
-            if not ok or not bb then return nil end
-            return roundCorners(fill(bb, width, height), math.floor(width * 0.045))
+            return BookInfo:getCoverImage(nil, entry.file)
         end, width, height)
     end
 
@@ -120,21 +147,13 @@ function CoverCache:get(entry, width, height)
         local Discover = require("discover")
         if not Discover:hasCover(entry.hc_id, entry.image_url) then return nil end
         return scaled("hc:" .. entry.hc_id, self, function()
-            local ok, bb = pcall(function()
-                return RenderImage:renderImageFile(Discover:coverFile(entry.hc_id, entry.image_url))
-            end)
-            if not ok or not bb then return nil end
-            return roundCorners(fill(bb, width, height), math.floor(width * 0.045))
+            return RenderImage:renderImageFile(Discover:coverFile(entry.hc_id, entry.image_url))
         end, width, height)
     end
 
     if entry.book_id and self:hasRemote(entry.book_id) then
         return scaled("id:" .. entry.book_id, self, function()
-            local ok, bb = pcall(function()
-                return RenderImage:renderImageFile(self:coverFile(entry.book_id))
-            end)
-            if not ok or not bb then return nil end
-            return roundCorners(fill(bb, width, height), math.floor(width * 0.045))
+            return RenderImage:renderImageFile(self:coverFile(entry.book_id))
         end, width, height)
     end
 

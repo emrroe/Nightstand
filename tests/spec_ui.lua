@@ -95,7 +95,7 @@ DATASETS["mixed with positions"] = function()
     local Books = require("books")
     for _, e in ipairs(Books:list(dir)) do
         if e.checksum then
-            require("progress"):load()[e.checksum] = { percentage = 0.42, device = "nova2", timestamp = os.time() - 60 }
+            require("progress"):remember(e.checksum, { percentage = 0.42, device = "nova2", timestamp = os.time() - 60 })
         end
     end
     require("progress"):save()
@@ -336,7 +336,7 @@ for _, name in ipairs({ "fresh install", "no books folder", "local files only", 
             T.ok(screen:onClose(), "back leaves Want to read")
             T.ok(screen.list ~= "want")
             -- want-to-read round trip through the screen
-            screen:toggleWanted(screen.entries[1])
+            screen:setStatus(screen.entries[1], require("discover").WANT)
             paint(screen, "discover after want")
             T.ok(server, "server used")
         end)
@@ -469,10 +469,21 @@ T.describe(SIZE .. " › book details and menus", function()
     T.it("Home opens the book being read at once, and shows details for everything else", function()
         DATASETS["mixed with positions"]()
         local home = quiet(require("homescreen"):new{ plugin = plugin() })
-        recorder.calls = {}
-        local shown = capture(function() home:showDetails(home.entries[1]) end)
-        paint(shown[1], "details from Home")
         T.ok(not home.fresh, "a book is being read")
+        -- the hero: the one full-width zone that also takes a long press
+        local hero
+        for _, zone in ipairs(home.tap_zones) do
+            if zone.hold and zone.rect.x == 0 and zone.rect.w == W then hero = zone end
+        end
+        T.ok(hero, "the hero has a zone")
+        recorder.calls = {}
+        local shown = capture(function() hero.tap() end)
+        T.eq(recorder.calls, { "openBook" }, "the book being read opens at once")
+        T.eq(#shown, 0, "no details first")
+        home.fresh = true
+        shown = capture(function() hero.tap() end)
+        T.ok(shown[1], "a suggestion shows its details")
+        paint(shown[1], "details from Home")
     end)
     T.it("a long description is paged, not scrolled, and every page fits", function()
         DATASETS["mixed with positions"]()
@@ -519,7 +530,7 @@ T.describe(SIZE .. " › book details and menus", function()
         Hardcover:fetchMe()
         assert(require("discover"):refresh("Wind and Truth"))
         local screen = require("discoverscreen"):new{ plugin = plugin() }
-        local sheet = capture(function() screen:openBook(screen.entries[1]) end)[1]
+        local sheet = capture(function() screen:showDetails(screen.entries[1]) end)[1]
         paint(sheet, "Discover details")
         local text = {}
         for _, row in ipairs(sheet.buttons) do for _, b in ipairs(row) do table.insert(text, b.text) end end

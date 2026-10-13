@@ -119,8 +119,16 @@ function NightstandScreen:onHold(_arg, ges)
     return true
 end
 
+--- On a pageable screen, `self.page` of `self.pages`.
+function NightstandScreen:turnPage(delta)
+    local page = self.page + delta
+    if page < 1 or page > self.pages then return end
+    self.page = page
+    self:refresh()
+end
+
+-- only pageable screens listen for swipes
 function NightstandScreen:onSwipe(_arg, ges)
-    if not self.turnPage then return false end
     if ges.direction == "west" then
         self:turnPage(1)
     elseif ges.direction == "east" then
@@ -220,8 +228,9 @@ end
 
 --- An empty or offline state: an icon, a sentence or two, and a button
 --- when there is something useful to do about it. `h` is the height it
---- centres in; `band_y` where that starts on screen.
-function NightstandScreen:emptyState(w, h, band_y, icon, message, action_text, action)
+--- centres in; `band_y` where that starts on screen, `band_x` (default 0)
+--- where its left edge is.
+function NightstandScreen:emptyState(w, h, band_y, icon, message, action_text, action, band_x)
     local TextBoxWidget = require("ui/widget/textboxwidget")
     local VerticalSpan = require("ui/widget/verticalspan")
     local text_w = math.min(w - 4 * self.gutter, Dim.px(320))
@@ -247,7 +256,7 @@ function NightstandScreen:emptyState(w, h, band_y, icon, message, action_text, a
         -- the button's place: centred, at the foot of the centred column
         local bw, bh = button:getSize().w, button:getSize().h
         local top = band_y + math.floor((h - column_h) / 2)
-        self:zone(math.floor((w - bw) / 2), top + column_h - bh, bw, bh, action)
+        self:zone((band_x or 0) + math.floor((w - bw) / 2), top + column_h - bh, bw, bh, action)
     end
     return CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, column }
 end

@@ -5,42 +5,34 @@ it. Polls in the background until the user approves, denies, or it expires.
 --]]--
 
 local Blitbuffer = require("ffi/blitbuffer")
-local Button = require("ui/widget/button")
 local CenterContainer = require("ui/widget/container/centercontainer")
 local Device = require("device")
 local FrameContainer = require("ui/widget/container/framecontainer")
 local Geom = require("ui/geometry")
-local InputContainer = require("ui/widget/container/inputcontainer")
 local QRWidget = require("ui/widget/qrwidget")
 local TextBoxWidget = require("ui/widget/textboxwidget")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
+local Dialogs = require("dialogs")
 local Hardcover = require("hardcover")
+local NightstandScreen = require("screen")
 local Dim = require("dim")
 local _ = require("gettext")
-local Screen = Device.screen
 local T = require("ffi/util").template
 
 local W = require("widgets")
 local BLACK, MUTED = W.BLACK, W.MUTED
 
-local HardcoverLink = InputContainer:extend{
+local HardcoverLink = NightstandScreen:extend{
     name = "nightstand_hardcover_link",
-    covers_fullscreen = true,
     on_linked = nil,
 }
 
-function HardcoverLink:init()
-    self.screen_w = Screen:getWidth()
-    self.screen_h = Screen:getHeight()
-    if Device:hasKeys() then
-        self.key_events.Close = { { Device.input.group.Back } }
-    end
-    self.state = "starting"
-    self:build()
+function HardcoverLink:load()
+    self.state = self.state or "starting"
     -- let the screen paint before the first network round trip
-    UIManager:nextTick(function() self:start() end)
+    if self.state == "starting" then UIManager:nextTick(function() self:start() end) end
 end
 
 function HardcoverLink:start()
@@ -112,21 +104,34 @@ function HardcoverLink:build()
     local inner = math.floor(w * 0.84)
     local qr_size = math.floor(math.min(w, h) * 0.42)
     local group = VerticalGroup:new{ align = "center" }
+    local group_h = 0
+    local function put(widget)
+        table.insert(group, widget)
+        group_h = group_h + widget:getSize().h
+    end
+    -- buttons are placed once the column is centred, so their zones are known
+    local buttons = {}
+    local function button(text, filled, on_tap)
+        local widget = Dialogs.button(text, filled, math.floor(w * 0.5))
+        table.insert(buttons, { y = group_h, widget = widget, on_tap = on_tap })
+        put(widget)
+        put(VerticalSpan:new{ width = Dim.px(10) })
+    end
 
-    table.insert(group, line(_("Connect Hardcover"), W.BOLD, 22, BLACK, w))
-    table.insert(group, VerticalSpan:new{ width = Dim.px(12) })
+    put(line(_("Connect Hardcover"), W.BOLD, 22, BLACK, w))
+    put(VerticalSpan:new{ width = Dim.px(12) })
 
     local device = self.device
     if device and self.state == "waiting" then
-        table.insert(group, TextBoxWidget:new{
+        put(TextBoxWidget:new{
             text = _("Scan the code with your phone, or go to the address below and enter the code."),
             face = Dim.face(W.REGULAR, 13),
             width = inner,
             alignment = "center",
         })
-        table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
+        put(VerticalSpan:new{ width = Dim.px(16) })
         -- QR needs a white quiet zone around it to scan reliably
-        table.insert(group, FrameContainer:new{
+        put(FrameContainer:new{
             background = Blitbuffer.COLOR_WHITE,
             bordersize = 0,
             padding = Dim.px(10),
@@ -136,53 +141,36 @@ function HardcoverLink:build()
                 height = qr_size,
             },
         })
-        table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
-        table.insert(group, line(device.verification_uri, W.REGULAR, 14, MUTED, w))
-        table.insert(group, line(device.user_code, "infont", 30, BLACK, w))
-        table.insert(group, VerticalSpan:new{ width = Dim.px(16) })
+        put(VerticalSpan:new{ width = Dim.px(16) })
+        put(line(device.verification_uri, W.REGULAR, 14, MUTED, w))
+        put(line(device.user_code, "infont", 30, BLACK, w))
+        put(VerticalSpan:new{ width = Dim.px(16) })
     else
-        table.insert(group, VerticalSpan:new{ width = qr_size * 0.5 })
+        put(VerticalSpan:new{ width = qr_size * 0.5 })
     end
 
-    table.insert(group, line(self:status(), W.REGULAR, 13, MUTED, w))
-    table.insert(group, VerticalSpan:new{ width = Dim.px(20) })
+    put(line(self:status(), W.REGULAR, 13, MUTED, w))
+    put(VerticalSpan:new{ width = Dim.px(20) })
 
-    local buttons = VerticalGroup:new{ align = "center" }
     -- on a phone the QR code is on the very screen that would scan it
     if device and self.state == "waiting" and Device:canOpenLink() then
-        table.insert(buttons, Button:new{
-            text = _("Open in browser"),
-            width = math.floor(w * 0.5),
-            callback = function()
-                Device:openLink(device.verification_uri_complete or device.verification_uri)
-            end,
-        })
-        table.insert(buttons, VerticalSpan:new{ width = Dim.px(10) })
+        button(_("Open in browser"), true, function()
+            Device:openLink(device.verification_uri_complete or device.verification_uri)
+        end)
     end
     if self.state == "expired" or self.state == "error" then
-        table.insert(buttons, Button:new{
-            text = _("Get a new code"),
-            width = math.floor(w * 0.5),
-            callback = function() self:restart() end,
-        })
-        table.insert(buttons, VerticalSpan:new{ width = Dim.px(10) })
+        button(_("Get a new code"), true, function() self:restart() end)
     end
     if self.state ~= "linked" then
-        table.insert(buttons, Button:new{
-            text = _("Cancel"),
-            width = math.floor(w * 0.5),
-            callback = function() UIManager:close(self) end,
-        })
+        button(_("Cancel"), false, function() UIManager:close(self) end)
     end
-    table.insert(group, buttons)
 
-    self[1] = FrameContainer:new{
-        width = w, height = h,
-        background = Blitbuffer.COLOR_WHITE,
-        bordersize = 0, padding = 0, margin = 0,
-        CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, group },
-    }
-    self.dimen = Geom:new{ x = 0, y = 0, w = w, h = h }
+    local top = math.floor((h - group_h) / 2)
+    for _index, b in ipairs(buttons) do
+        local size = b.widget:getSize()
+        self:zone(math.floor((w - size.w) / 2), top + b.y, size.w, size.h, b.on_tap)
+    end
+    self:setContent(CenterContainer:new{ dimen = Geom:new{ w = w, h = h }, group })
 end
 
 function HardcoverLink:restart()
@@ -190,14 +178,11 @@ function HardcoverLink:restart()
     self.device = nil
     self.message = nil
     self.state = "starting"
-    self:rebuild()
-    UIManager:nextTick(function() self:start() end)
+    self:reload()
 end
 
 function HardcoverLink:rebuild()
-    if self.closed then return end
-    self:build()
-    UIManager:setDirty(self, "ui")
+    if not self.closed then self:refresh() end
 end
 
 function HardcoverLink:cancelPoll()
@@ -207,15 +192,10 @@ function HardcoverLink:cancelPoll()
     end
 end
 
-function HardcoverLink:onClose()
-    UIManager:close(self)
-    return true
-end
-
 function HardcoverLink:onCloseWidget()
     self.closed = true
     self:cancelPoll()
-    UIManager:setDirty(nil, "full")
+    NightstandScreen.onCloseWidget(self)
 end
 
 return HardcoverLink

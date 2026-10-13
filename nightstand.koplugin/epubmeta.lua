@@ -18,10 +18,7 @@ local function storePath()
 end
 
 local function decode(str)
-    str = str:gsub("<!%[CDATA%[(.-)%]%]>", "%1")
-    str = str:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&apos;", "'")
-             :gsub("&#(%d+);", function(n) return n + 0 < 128 and string.char(n + 0) or "" end)
-             :gsub("&amp;", "&")
+    str = require("text").decode((str:gsub("<!%[CDATA%[(.-)%]%]>", "%1")))
     return (str:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 

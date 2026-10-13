@@ -26,7 +26,7 @@ SyncEngine.__index = SyncEngine
 
 local IDLE_SAVE = 10   -- seconds without a page turn before saving
 local RETRY = 30       -- seconds between tries while the server cannot be reached
-local SAME_PLACE = require("syncguard").SAME_PLACE
+local SAME_PLACE = require("progress").SAME_PLACE
 
 local function now() return os.time() end
 

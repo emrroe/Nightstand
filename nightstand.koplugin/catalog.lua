@@ -13,7 +13,6 @@ local ltn12 = require("ltn12")
 local socket = require("socket")
 local socketutil = require("socketutil")
 local logger = require("logger")
-local util = require("util")
 local rapidjson = require("rapidjson")
 local Settings = require("settings")
 local _ = require("gettext")
@@ -30,37 +29,24 @@ local function storePath()
 end
 
 local function credentials()
-    local user = Settings:get("username") or ""
-    local password = Settings:get("password") or ""
-    if user ~= "" and password ~= "" then return user, password end
-    -- Fall back to the CWA sync plugin's credentials rather than asking twice.
-    local cwa = G_reader_settings and G_reader_settings:readSetting("cwasync")
-    if cwa and cwa.username and cwa.password and cwa.password ~= "" then
-        return cwa.username, cwa.password
-    end
+    local user, password = Settings:get("username"), Settings:get("password")
     if user == "" or password == "" then return nil, nil end
     return user, password
 end
 Catalog.credentials = credentials
 
---- One HTTP request against the configured server. Returns body or nil, err.
-function Catalog:request(method, path, body, content_type)
+--- GET a path from the configured server. Returns the body, or nil and an error.
+function Catalog:get(path)
     local server = Settings:get("server"):gsub("/+$", "")
     if server == "" then return nil, "no server configured" end
     local user, password = credentials()
 
     local sink = {}
-    local headers = { ["Accept-Encoding"] = "identity" }
-    if body then
-        headers["Content-Type"] = content_type or "application/json"
-        headers["Content-Length"] = tostring(#body)
-    end
     socketutil:set_timeout(10, 30)
     local code, _headers, status = socket.skip(1, http.request{
         url = server .. path,
-        method = method,
-        headers = headers,
-        source = body and ltn12.source.string(body) or nil,
+        method = "GET",
+        headers = { ["Accept-Encoding"] = "identity" },
         sink = ltn12.sink.table(sink),
         user = user,
         password = password,
@@ -74,24 +60,13 @@ function Catalog:request(method, path, body, content_type)
     return text ~= "" and text or nil, text == "" and "empty response" or nil
 end
 
-function Catalog:get(path)
-    return self:request("GET", path)
-end
-
 -- KOReader's OPDS parser keeps only the last of any repeated element except
 -- entry/link, which loses every author after the first -- CWA lists the
 -- translator as a second author, so that is the one that survives. The five
 -- fields below are easier to read straight off the feed, and doing so drops
 -- the dependency on the OPDS plugin being enabled.
 
-local function decode(str)
-    if not str then return "" end
-    str = str:gsub("&#(%d+);", function(code)
-        return util.unicodeCodepointToUtf8(tonumber(code))
-    end)
-    return (str:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"')
-               :gsub("&apos;", "'"):gsub("&amp;", "&"))
-end
+local decode = require("text").decode
 
 local function linksIn(block)
     local links = {}
@@ -352,6 +327,7 @@ function Catalog:refresh()
 end
 
 function Catalog:save()
+    self.version = (self.version or 0) + 1
     local store = LuaSettings:open(storePath())
     store:saveSetting("entries", self.entries)
     store:saveSetting("fetched_at", self.fetched_at)

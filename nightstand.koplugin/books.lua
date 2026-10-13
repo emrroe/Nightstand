@@ -1,8 +1,7 @@
 --[[--
-The shelf, as the home screen needs it.
-
-For now every entry comes from the local folder. When the catalogue lands,
-server-only books join the same list with `on_device = false`.
+The shelf, as the screens need it: the books in the local folder merged
+with the CWA catalogue, server-only ones carrying `on_device = false` and
+their download link, each with where it was last read.
 --]]--
 
 local BookList = require("ui/widget/booklist")
@@ -10,6 +9,7 @@ local DocSettings = require("docsettings")
 local lfs = require("libs/libkoreader-lfs")
 local Availability = require("availability")
 local Catalog = require("catalog")
+local Text = require("text")
 local EpubMeta = require("epubmeta")
 local Progress = require("progress")
 local ReadHistory = require("readhistory")
@@ -99,25 +99,49 @@ function Books:applyPosition(entry, synced)
     entry.status = synced.percentage >= 1 and "complete" or "reading"
 end
 
---- Titles compared loosely: local names carry the author, catalogue ones
---- do not, so a containment test beats equality.
-local function norm(str)
-    str = (str or ""):lower():gsub("&#39;", "'")
-    str = str:gsub("[^%w]+", " "):gsub("^%s+", ""):gsub("%s+$", "")
-    return str
-end
+-- Titles compared loosely: local names carry the author, catalogue ones do
+-- not, so a containment test beats equality.
+local norm = Text.norm
 
 --- A file named "<title> <author>" for a catalogue title, the surname present.
 local function titleMatches(local_key, key, author)
     if local_key:sub(1, #key + 1) ~= key .. " " then return false end
-    local surname = norm((author or ""):match("^[^,]+") or ""):match("(%S+)$")
+    local surname = norm(Text.surname(author)):match("(%S+)$")
     return surname ~= nil and (" " .. local_key .. " "):find(" " .. surname .. " ", 1, true) ~= nil
+end
+
+-- Building the list reads every book's settings, so a list is reused while
+-- nothing it was built from changed -- for a short while, as KOReader's own
+-- menus can change a book too.
+local REUSE_SECONDS = 30
+
+local function stamp(books_dir)
+    local last = ReadHistory.hist and ReadHistory.hist[1]
+    return table.concat({ books_dir, tostring(Availability.map), Availability.version,
+                          tostring(Catalog.entries), Catalog.version or 0, Progress.version,
+                          #(ReadHistory.hist or {}), last and last.time or 0 }, "|")
+end
+
+--- Forget the list, e.g. once a book was read or removed.
+function Books:invalidate()
+    self.cached = nil
 end
 
 --- Local files merged with the CWA catalogue. Books only on the server join
 --- the list with `on_device = false` and carry their download link.
 function Books:list(books_dir)
     local map = Availability:ensure(books_dir) or {}
+    local key = stamp(books_dir)
+    local cached = self.cached
+    if cached and cached.key == key and os.time() - cached.at < REUSE_SECONDS then
+        return cached.entries
+    end
+    local entries = self:build(map)
+    self.cached = { key = key, at = os.time(), entries = entries }
+    return entries
+end
+
+function Books:build(map)
     local entries, locals = {}, {}
     for checksum, file in pairs(map) do
         local entry = self:entryFor(file, checksum)

@@ -125,7 +125,7 @@ function WelcomeScreen:next()
 end
 
 function WelcomeScreen:connectHardcover()
-    require("ui/network/manager"):runWhenOnline(function()
+    require("net").whenOnline(function()
         UIManager:show(require("hardcoverlink"):new{ on_linked = function() self:finish() end })
     end)
 end
@@ -133,7 +133,6 @@ end
 --- Done: remember it, and open Home (fetching the library from a server).
 function WelcomeScreen:finish()
     Settings:set("welcomed", true)
-    require("availability"):invalidate()
     UIManager:close(self)
     if self.plugin then self.plugin:openAsHome() end
 end

@@ -4,17 +4,13 @@ otherwise fetched from the server first.
 --]]--
 
 local UIManager = require("ui/uimanager")
+local Dialogs = require("dialogs")
 local Net = require("net")
+local Progress = require("progress")
 local _ = require("gettext")
 local T = require("ffi/util").template
 
 local BookActions = {}
-
-local Dialogs = require("dialogs")
-
-local function message(text)
-    Dialogs.note(text)
-end
 
 local function showReader(file)
     require("screen").closeAll()
@@ -33,11 +29,11 @@ local function download(screen, entry)
         UIManager:close(working)
         if ok == nil then return end
         if not ok then
-            message(T(_("Could not fetch %1.\n%2"), entry.title, tostring(result)))
+            Dialogs.note(T(_("Could not fetch %1.\n%2"), entry.title, tostring(result)))
             screen:refresh()
             return
         end
-        pcall(require("syncguard").seedDownload, entry, result)
+        pcall(Progress.seedDownload, Progress, entry, result)
         showReader(result)
     end)
 end
@@ -47,14 +43,13 @@ function BookActions.open(screen, entry)
     if entry.on_device and entry.file then
         -- open where Home said the book is: another device's newer position,
         -- unless this device read on unsynced; then the reader asks which to keep
-        local SyncGuard = require("syncguard")
-        if entry.remote and not SyncGuard.unsynced(entry.file) then
-            SyncGuard.seed(entry.file, entry.remote, true)
+        if entry.remote and not Progress.unsynced(entry.file) then
+            Progress:seed(entry.file, entry.remote, true)
         end
         return showReader(entry.file)
     end
     if not Net.mayDownload() then
-        return message(_("This phone is on mobile data and “Over Wi-Fi only” is on. Connect to Wi-Fi, or turn that off in Settings."))
+        return Dialogs.note(_("This phone is on mobile data and “Over Wi-Fi only” is on. Connect to Wi-Fi, or turn that off in Settings."))
     end
     Net.whenOnline(function() download(screen, entry) end)
 end
@@ -73,14 +68,20 @@ function BookActions.progressLine(entry)
     return line
 end
 
+--- A series number as people write it: 3, or 2.5 for a novella.
+function BookActions.seriesNumber(n)
+    return n == math.floor(n) and string.format("%d", n) or tostring(n)
+end
+
+--- "Book 3 of Stormlight", or nil outside a series.
+function BookActions.seriesLine(entry)
+    if not (entry.series and entry.series_index) then return nil end
+    return T(_("Book %1 of %2"), BookActions.seriesNumber(entry.series_index), entry.series)
+end
+
 --- The short facts a sheet shows under the title and author.
 function BookActions.facts(entry)
-    local facts = {}
-    if entry.series and entry.series_index then
-        local n = entry.series_index
-        table.insert(facts, T(_("Book %1 of %2"), n == math.floor(n) and string.format("%d", n) or n,
-                              entry.series))
-    end
+    local facts = { BookActions.seriesLine(entry) }
     table.insert(facts, BookActions.progressLine(entry))
     local year = type(entry.published) == "string" and entry.published:match("^(%d%d%d%d)")
     local where = entry.on_device and _("On this device") or _("Not downloaded")
@@ -89,7 +90,7 @@ function BookActions.facts(entry)
 end
 
 local function hasPositions(entry)
-    return #require("progress"):positions(entry) > 0
+    return #Progress:positions(entry) > 0
 end
 
 --- Long-press on a book, on Home and in the Library: one menu everywhere,
@@ -116,7 +117,7 @@ end
 --- for when one was overwritten by mistake.
 function BookActions.positions(screen, entry)
     local items = {}
-    for index, record in ipairs(require("progress"):positions(entry)) do
+    for index, record in ipairs(Progress:positions(entry)) do
         if index > 8 then break end
         local when = record.timestamp and os.date("%d %b %H:%M", record.timestamp) or "?"
         table.insert(items, {
@@ -126,7 +127,7 @@ function BookActions.positions(screen, entry)
         })
     end
     if #items == 0 then
-        return message(_("No earlier positions of this book are known yet."))
+        return Dialogs.note(_("No earlier positions of this book are known yet."))
     end
     Dialogs.menu{ book = entry, subtitle = _("Go back to an earlier position"), items = items }
 end
@@ -169,9 +170,10 @@ function BookActions.remove(screen, entry)
                 pcall(function() require("docsettings"):open(file):purge() end)
             end
             local ok, err = os.remove(file)
-            if not ok then return message(T(_("Could not remove it: %1"), tostring(err))) end
+            if not ok then return Dialogs.note(T(_("Could not remove it: %1"), tostring(err))) end
             pcall(function() require("readhistory"):removeItemByPath(file) end)
             require("availability"):invalidate()
+            require("books"):invalidate()
             if screen and screen.reload then screen:reload() end
         end,
     }
@@ -181,9 +183,9 @@ end
 function BookActions.restore(screen, entry, record)
     if entry.on_device and entry.file then
         -- going back on purpose: newer positions elsewhere are not a question
-        require("syncguard").seed(entry.file, record, true, os.time())
+        Progress:seed(entry.file, record, true, os.time())
     else
-        require("progress"):choose(entry.book_id, record)
+        Progress:choose(entry.book_id, record)
     end
     BookActions.open(screen, entry)
 end

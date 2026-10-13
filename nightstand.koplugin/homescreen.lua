@@ -125,19 +125,19 @@ function HomeScreen:labelHeight()
     return W.lineHeight(BOLD, 14.5)
 end
 
---- Works out how many shelves, how many covers per shelf, and what is left
---- for the hero.
+--- Works out, for `count` shelves, how many covers per shelf and what is
+--- left for the hero.
 ---
 --- Shelves take exactly the height they need and the slack goes to the hero,
---- because a 2:3 cover rarely divides the space evenly. Every combination of
---- shelf count and column count is tried; a plan is valid when shelf covers
+--- because a 2:3 cover rarely divides the space evenly. Every column count
+--- is tried; a plan is valid when shelf covers
 --- stay legible and the hero's cover is bigger than a shelf cover, which is
 --- what keeps the continue card reading as the main thing on the screen.
 --- Among valid plans the hero should take about its target share of the
 --- height -- a third in portrait, half in landscape, where it was liked big --
 --- and within that tolerance larger covers win. A tall phone therefore gets
 --- a third shelf rather than a hero that swallows half the screen.
-function HomeScreen:shelfPlan(max_count, status_h, footer_h)
+function HomeScreen:shelfPlan(count, status_h, footer_h)
     local area_w = self.screen_w - 2 * self.gutter
     local gap = W.GAP
     local chrome = self:labelHeight() + Dim.pad.default + Dim.pad.large
@@ -148,18 +148,15 @@ function HomeScreen:shelfPlan(max_count, status_h, footer_h)
     local tolerance = 0.08
 
     local plans = {}
-    -- every shelf is shown; only their size and the hero's are planned
-    for count = max_count, max_count do
-        for cols = 3, 10 do
-            local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
-            if cover_w < smallest then break end
-            local each = chrome + W.coverHeight(cover_w)
-            local hero_h = available - count * each
-            if hero_h > 0 and self:heroCoverWidth(hero_h) > cover_w then
-                table.insert(plans, { count = count, cols = cols, cover_w = cover_w,
-                                      each = each, hero_h = hero_h,
-                                      off = math.abs(hero_h / available - target) })
-            end
+    for cols = 3, 10 do
+        local cover_w = math.floor((area_w - (cols - 1) * gap) / cols)
+        if cover_w < smallest then break end
+        local each = chrome + W.coverHeight(cover_w)
+        local hero_h = available - count * each
+        if hero_h > 0 and self:heroCoverWidth(hero_h) > cover_w then
+            table.insert(plans, { count = count, cols = cols, cover_w = cover_w,
+                                  each = each, hero_h = hero_h,
+                                  off = math.abs(hero_h / available - target) })
         end
     end
 
@@ -288,11 +285,7 @@ function HomeScreen:emptyBand(shelf, h, band_y)
         action_text, action = _("Refresh"), function() self:refreshAll() end
     end
     local state = self:emptyState(inner_w - 2 * Size.border.thin, cover_h - 2 * Size.border.thin,
-                                  box_y, nil, shelf.empty or "", action_text,
-                                  action and function() action() end)
-    -- the button's zone was placed for a full-width box; shift it by the gutter
-    local last = self.tap_zones[#self.tap_zones]
-    if action and last then last.rect.x = last.rect.x + self.gutter end
+                                  box_y, nil, shelf.empty or "", action_text, action, self.gutter)
     local inner = VerticalGroup:new{ align = "left" }
     table.insert(inner, self:shelfHeader(shelf, top))
     table.insert(inner, VerticalSpan:new{ width = Dim.pad.default })
@@ -305,10 +298,8 @@ end
 
 --- Which of its series a book not yet under way is.
 function HomeScreen:cardFact(entry)
-    if entry.series and entry.series_index then
-        local n = entry.series_index
-        return T(_("Book %1 of %2"), n == math.floor(n) and string.format("%d", n) or n, entry.series)
-    end
+    local series = require("bookactions").seriesLine(entry)
+    if series then return series end
     return entry.status == "complete" and _("Finished") or nil
 end
 
@@ -378,7 +369,7 @@ end
 
 function HomeScreen:heroEmpty(h)
     local msg = Settings:get("books_dir") == ""
-        and _("Set a books folder under Tools > Nightstand.")
+        and _("Set a books folder in Settings.")
          or _("Nothing in progress. Pick something below.")
     return band(self.screen_w, h, self.gutter, CenterContainer:new{
         dimen = Geom:new{ w = self.screen_w - 2 * self.gutter, h = h },

@@ -31,7 +31,7 @@ T.describe("read and unread", function()
         T.eq(found.status_id, Discover.READ, "Hardcover was told")
         T.ok(Discover:setStatus(id, nil))
         T.eq(Discover:status(id), nil, "unread takes it off every shelf")
-        T.ok(Discover:setWanted(id, true))
+        T.ok(Discover:setStatus(id, Discover.WANT))
         T.eq(Discover:load().lists.want[1], id, "the want list follows")
         T.ok(Discover:setStatus(id, Discover.READ))
         for _, x in ipairs(Discover:load().lists.want) do T.ok(x ~= id, "read books leave the want list") end
@@ -128,7 +128,7 @@ T.describe("want to read", function()
     T.it("adding inserts on Hardcover and shows up first in the list", function()
         local server, Discover = linked()
         Discover:refresh()
-        T.ok(Discover:setWanted(10, true))
+        T.ok(Discover:setStatus(10, Discover.WANT))
         T.ok(Discover:isWanted(10))
         T.eq(Discover:load().lists.want[1], 10)
         local found = false
@@ -138,7 +138,7 @@ T.describe("want to read", function()
     T.it("a book already in the library (read) is updated, not inserted twice", function()
         local server, Discover = linked()
         Discover:refresh()
-        T.ok(Discover:setWanted(2, true))
+        T.ok(Discover:setStatus(2, Discover.WANT))
         local count = 0
         for _, ub in ipairs(server.discover.user_books) do if ub.book_id == 2 then count = count + 1 end end
         T.eq(count, 1)
@@ -146,7 +146,7 @@ T.describe("want to read", function()
     T.it("removing deletes it and drops it from the list", function()
         local server, Discover = linked()
         Discover:refresh()
-        T.ok(Discover:setWanted(21, false))
+        T.ok(Discover:setStatus(21, nil))
         T.ok(not Discover:isWanted(21))
         for _, id in ipairs(Discover:load().lists.want) do T.ok(id ~= 21, "gone from list") end
         for _, ub in ipairs(server.discover.user_books) do T.ok(ub.book_id ~= 21, "gone from server") end
@@ -155,7 +155,7 @@ T.describe("want to read", function()
         local server, Discover = linked()
         Discover:refresh()
         server.online = false
-        T.eq(Discover:setWanted(10, true), false)
+        T.eq(Discover:setStatus(10, Discover.WANT), false)
         T.ok(not Discover:isWanted(10))
     end)
 end)
@@ -169,8 +169,8 @@ T.describe("matching the CWA library", function()
     end)
     T.it("ignores case, punctuation and a leading 'The'", function()
         T.ok(match({ title = "The Way of Kings", author = "Brandon Sanderson" },
-                   { { title = "Way of Kings", author = "Sanderson, Brandon" } }) == nil
-             or true, "surname-first authors are tolerated or skipped, never an error")
+                   { { title = "Way of Kings", author = "Sanderson, Brandon" } }),
+             "surname first, as Calibre sorts authors")
         T.ok(match({ title = "Fool's Errand", author = "Robin Hobb" },
                    { { title = "fool's errand", author = "Robin Hobb" } }))
     end)

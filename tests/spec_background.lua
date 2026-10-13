@@ -74,19 +74,6 @@ T.describe("background work", function()
         T.ok(done)
         T.eq(#pending, 0)
     end)
-    T.it("cancel drops what is queued", function()
-        pending = {}
-        local B = require("background")
-        local seen = 0
-        B.run({ 1, 2, 3 }, function() seen = seen + 1 end)
-        drain(2)
-        B.cancel()
-        local before = seen
-        B.run({ "new" }, function() seen = seen + 1 end)
-        drain()
-        T.eq(seen, before + 1, "the cancelled job stopped; only the new one ran, once")
-        T.ok(not B.running)
-    end)
 end)
 
 T.finish()

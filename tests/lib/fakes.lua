@@ -1,9 +1,10 @@
 --[[--
-Stand-ins for the two servers Nightstand talks to.
+Stand-ins for the servers Nightstand talks to.
 
-All network traffic goes through Catalog:get / Catalog:fetchTo (CWA) and
-Hardcover:post (Hardcover), so replacing those three is enough to run every
-code path offline and deterministically.
+All network traffic goes through Catalog:get / Catalog:fetchTo (CWA),
+SyncServer.request (positions) and Hardcover:post (Hardcover), so replacing
+those is enough to run every code path offline and deterministically. The
+feeds mirror real CWA output, so they must follow it when CWA changes.
 --]]--
 
 local Fakes = {}
@@ -158,17 +159,6 @@ function Fakes.cwa(routes)
         if type(body) == "function" then return body(path) end
         if body == nil then return nil, "404" end
         return body
-    end
-    Catalog.request = function(self, method, path, body)
-        if method == "GET" then return self:get(path) end
-        if method == "PUT" and path == "/kosync/syncs/progress" then
-            local record = require("rapidjson").decode(body)
-            table.insert(calls, "PUT " .. record.document)
-            record.timestamp = os.time()
-            routes["/kosync/syncs/progress/" .. record.document] = require("rapidjson").encode(record)
-            return '{"document": "' .. record.document .. '"}'
-        end
-        return nil, "405"
     end
     -- positions go through the sync client; answer from the same routes
     local SyncServer = require("syncserver")

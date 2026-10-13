@@ -1,17 +1,25 @@
 --[[--
-Reading positions, read back from the sync server.
+Reading positions known from the sync server, and writing one into a book.
 
-A position is keyed by KOReader's partial MD5 of the file, so the same book
-read on the Nova 2 and held here is one document. There is no bulk endpoint --
-`/kosync/syncs/progress/all` is just a document id that does not exist -- so
-this is one request per book and belongs in an explicit refresh.
+Positions are kept per document -- KOReader's partial MD5 of the file, or
+the CWA book id for books not on this device -- with a short history of
+each, so a position overwritten by mistake can be put back. The server
+answers one document per request, so refreshing is background work.
+
+A book opens where it was last read on any device rather than where this
+device left it: for fresh downloads (CWA writes its own id into every EPUB
+it serves, so a fresh copy can have a checksum no position is stored under)
+and for books opened from Home while another device's position is newer.
 --]]--
 
 local DataStorage = require("datastorage")
 local LuaSettings = require("luasettings")
-local logger = require("logger")
 
-local Progress = { records = nil }
+local Progress = {
+    records = nil,
+    version = 0,  -- bumped whenever a position is learnt or written
+    SAME_PLACE = 0.002,  -- positions closer than this count as one
+}
 
 local function storePath()
     return DataStorage:getSettingsDir() .. "/nightstand_progress.lua"
@@ -46,6 +54,7 @@ local HISTORY = 8
 --- Keep `record` as the latest for `key`, and in that key's history when it
 --- is a new position.
 function Progress:remember(key, record)
+    self.version = self.version + 1
     self:load()[key] = record
     local list = self.history[key] or {}
     local last = list[1]
@@ -82,6 +91,7 @@ end
 
 function Progress:choose(book_id, record)
     if not book_id then return end
+    self.version = self.version + 1
     self:load()["chosen:" .. tostring(book_id)] = record
     self:save()
 end
@@ -89,11 +99,6 @@ end
 --- Ask the sync server where this document was left off.
 function Progress:fetch(document)
     return (require("syncserver").get(document))
-end
-
---- Tell the sync server where `document` (a checksum) is, as this device.
-function Progress:push(document, record)
-    return require("syncserver").put(document, record)
 end
 
 --- The key a server-only book's position is kept under. CWA 4.0.7 and later
@@ -115,18 +120,73 @@ function Progress:refreshEntry(entry)
     return by_checksum ~= nil or by_id ~= nil
 end
 
---- Refresh every book (or those `wanted` picks): held-locally ones by their
---- checksum, catalogue ones by their id. Returns how many have a position.
-function Progress:refreshAll(entries, wanted)
-    local found = 0
-    for _index, entry in ipairs(entries) do
-        if (not wanted or wanted(entry)) and self:refreshEntry(entry) then
-            found = found + 1
-        end
+--- Write `record`'s position into `file`'s settings, so the reader opens
+--- there. Without `force`, a book that already has a position keeps it.
+--- Positions saved up to `answered` (default: the record's own time) count
+--- as answered, so the sync does not ask about them on opening.
+function Progress:seed(file, record, force, answered)
+    local position = record and record.progress
+    if type(position) ~= "string" then return false end
+    local DocSettings = require("docsettings")
+    local settings = DocSettings:open(file)
+    if not force and (settings:readSetting("last_xpointer") or settings:readSetting("last_page")) then
+        return false
     end
-    self:save()
-    logger.info("Nightstand: positions known for", found, "books")
-    return found
+    if position:match("^/body") then
+        settings:saveSetting("last_xpointer", position)
+        -- a position with no renderer version reads as one from an old
+        -- KOReader, which then offers to migrate a book it never opened
+        if not settings:readSetting("cre_dom_version") then
+            local cre = require("document/credocument"):engineInit()
+            settings:saveSetting("cre_dom_version", cre.getLatestDomVersion())
+        end
+    elseif tonumber(position) then
+        settings:saveSetting("last_page", tonumber(position))
+    else
+        return false
+    end
+    self.version = self.version + 1
+    settings:saveSetting("percent_finished", record.percentage)
+    settings:saveSetting("nightstand_synced", record.percentage)
+    -- the book now opens at this position: the sync has nothing to ask about it
+    answered = answered or record.timestamp
+    if answered then settings:saveSetting("nightstand_sync_seen", answered) end
+    settings:flush()
+    return true
+end
+
+--- Whether `file` was read on this device past what the server knows of it:
+--- a position no save or answer has reached the server with yet.
+function Progress.unsynced(file)
+    local settings = require("docsettings"):open(file)
+    local here = settings:readSetting("percent_finished")
+    if not here then return false end
+    local synced = settings:readSetting("nightstand_synced")
+    return not synced or math.abs(here - synced) >= Progress.SAME_PLACE
+end
+
+local function newer(a, b)
+    if not a then return b end
+    if not b then return a end
+    return (b.timestamp or 0) > (a.timestamp or 0) and b or a
+end
+
+--- After downloading `entry` to `file`: the latest position the server has
+--- for it, by the new copy's checksum or by book id -- or one the reader
+--- picked to restore -- written into the copy.
+function Progress:seedDownload(entry, file)
+    local ok, checksum = pcall(require("util").partialMD5, file)
+    local record = self:chosen(entry.book_id)
+    if not record then
+        local by_checksum = ok and checksum and self:fetch(checksum)
+        local by_id = entry.book_id and self:fetch(tostring(entry.book_id))
+        if by_checksum then self:remember(checksum, by_checksum) end
+        if by_id then self:remember(Progress.bookKey(entry.book_id), by_id) end
+        self:save()
+        record = newer(by_checksum, by_id)
+    end
+    self:choose(entry.book_id, nil)
+    return self:seed(file, record)
 end
 
 return Progress

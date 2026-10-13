@@ -12,6 +12,7 @@ local logger = require("logger")
 local Availability = {
     map = nil,   -- checksum -> absolute path
     root = nil,
+    version = 0, -- bumped whenever the map changes
 }
 
 local BOOK_EXT = {
@@ -54,6 +55,7 @@ function Availability:scan(root)
     end
 
     self.root, self.map = root, map
+    self.version = self.version + 1
     logger.info("Nightstand: indexed", count, "books under", tostring(root))
     return map
 end
@@ -68,13 +70,16 @@ end
 function Availability:count()
     if not self.map then return 0 end
     local n = 0
-    for _ in pairs(self.map) do n = n + 1 end
+    for _key in pairs(self.map) do n = n + 1 end
     return n
 end
 
 --- Called after a download, so the next lookup is right without a rescan.
 function Availability:add(checksum, path)
-    if self.map and checksum then self.map[checksum] = path end
+    if self.map and checksum then
+        self.map[checksum] = path
+        self.version = self.version + 1
+    end
 end
 
 function Availability:invalidate()

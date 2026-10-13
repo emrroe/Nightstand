@@ -58,8 +58,7 @@ function Library.authors(entry)
 end
 
 local function surnameKey(name)
-    local last = name:match("(%S+)$") or name
-    return (last .. " " .. name):lower()
+    return (require("text").surname(name) .. " " .. name):lower()
 end
 
 local function firstAuthorKey(entry)

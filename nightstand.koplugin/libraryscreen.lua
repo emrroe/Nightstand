@@ -7,7 +7,6 @@ for a list of authors, series or genres; tapping one opens it. View, filter,
 sort and grouping are remembered between visits.
 --]]--
 
-local CenterContainer = require("ui/widget/container/centercontainer")
 local Geom = require("ui/geometry")
 local HorizontalGroup = require("ui/widget/horizontalgroup")
 local LeftContainer = require("ui/widget/container/leftcontainer")
@@ -16,6 +15,7 @@ local TopContainer = require("ui/widget/container/topcontainer")
 local UIManager = require("ui/uimanager")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
+local BookActions = require("bookactions")
 local Books = require("books")
 local CoverGrid = require("covergrid")
 local NightstandScreen = require("screen")
@@ -253,10 +253,6 @@ function LibraryScreen:content(h, band_y)
     return TopContainer:new{ dimen = Geom:new{ w = self.screen_w, h = h }, body }
 end
 
-local function seriesNumber(n)
-    return n == math.floor(n) and string.format("%d", n) or tostring(n)
-end
-
 --- What a list row says about a book, or about a series, author or genre.
 function LibraryScreen:rowSpec(item)
     if self.showing_groups then
@@ -275,9 +271,9 @@ function LibraryScreen:rowSpec(item)
     local facts = {}
     if item.series and item.series_index then
         if self.open_group and self.group == "series" then
-            table.insert(facts, T(_("Book %1"), seriesNumber(item.series_index)))
+            table.insert(facts, T(_("Book %1"), BookActions.seriesNumber(item.series_index)))
         else
-            table.insert(facts, T(_("%1, book %2"), item.series, seriesNumber(item.series_index)))
+            table.insert(facts, T(_("%1, book %2"), item.series, BookActions.seriesNumber(item.series_index)))
         end
     end
     local tag, kind = Books:progressTag(item)
@@ -290,22 +286,6 @@ function LibraryScreen:rowSpec(item)
              progress = Books.started(item) and item.percent or nil }
 end
 
-function LibraryScreen:turnPage(delta)
-    local page = self.page + delta
-    if page < 1 or page > self.pages then return end
-    self.page = page
-    self:refresh()
-end
-
-function LibraryScreen:onSwipe(_, ges)
-    if ges.direction == "west" then
-        self:turnPage(1)
-    elseif ges.direction == "east" then
-        self:turnPage(-1)
-    end
-    return true
-end
-
 -- behaviour ---------------------------------------------------------------------
 
 function LibraryScreen:activate(item)
@@ -314,7 +294,7 @@ function LibraryScreen:activate(item)
         return self:refresh()
     end
     -- a book shows its details first; reading is one button away
-    require("bookactions").details(self, item)
+    BookActions.details(self, item)
 end
 
 --- Back out of an opened group, or out of a search to where it started.

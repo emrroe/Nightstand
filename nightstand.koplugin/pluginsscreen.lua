@@ -132,13 +132,6 @@ function PluginsScreen:row(plugin, h, band_y)
     }
 end
 
-function PluginsScreen:turnPage(delta)
-    local page = self.page + delta
-    if page < 1 or page > self.pages then return end
-    self.page = page
-    self:refresh()
-end
-
 function PluginsScreen:onClose()
     UIManager:close(self)
     if self.changed then UIManager:askForRestart() end

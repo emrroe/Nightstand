@@ -3,6 +3,8 @@ local LuaSettings = require("luasettings")
 
 local Settings = {}
 
+-- Every setting with a value it has before it is ever set. Those not here
+-- (a sign-in, a choice the screens derive) start as nil.
 Settings.DEFAULTS = {
     replace_file_browser = true,
     server = "",
@@ -11,6 +13,13 @@ Settings.DEFAULTS = {
     books_dir = "",
     refresh_on_wake = true,
     wifi_only = true,
+    -- chosen once on the first start (setup.lua), "off" until then
+    sync_service = "off",
+    sync_url = "",
+    sync_username = "",
+    discover_list = "recs",
+    vendor = "kobo",
+    custom_vendors = {},
 }
 
 function Settings:open()
@@ -21,8 +30,16 @@ end
 
 function Settings:get(key)
     local value = self:open():readSetting(key)
-    if value == nil then return self.DEFAULTS[key] end
+    if value ~= nil then return value end
+    value = self.DEFAULTS[key]
+    -- a default table must not be changed through what get() hands out
+    if type(value) == "table" then return require("util").tableDeepCopy(value) end
     return value
+end
+
+--- Whether `key` was ever set, its default aside.
+function Settings:has(key)
+    return self:open():readSetting(key) ~= nil
 end
 
 function Settings:set(key, value)
