@@ -15,7 +15,7 @@ T.describe("catalogue parsing", function()
             published = "2014-03-06T00:00:00+00:00", language = "eng",
             genres = { "Fantasy", "Fiction", "General" }, size = 537014,
             summary = "<p>A <b>witcher</b> story.</p>", series = { "The Witcher", 3 } }) }))
-        local entries = assert(require("catalog"):refresh())
+        local entries = assert(Fakes.refreshCatalogue())
         local e = entries[1]
         T.eq(e.title, "Baptism of Fire & <Friends>")
         T.eq(e.author, "Andrzej Sapkowski, David French")
@@ -104,7 +104,7 @@ T.describe("catalogue extras", function()
                                   book(2, { series = { "Stormlight", 2.5 } }),
                                   book(3, { series = { "Stormlight", 5 } }) }))
         local idx = {}
-        for _, e in ipairs(assert(require("catalog"):refresh())) do idx[e.book_id] = e.series_index end
+        for _, e in ipairs(assert(Fakes.refreshCatalogue())) do idx[e.book_id] = e.series_index end
         T.eq(idx, { 1, 2.5, 5 })
     end)
 
@@ -114,20 +114,46 @@ T.describe("catalogue extras", function()
         routes["/ajax/book/00000002-0000-4000-8000-000000000002"] = "not json"
         Fakes.cwa(routes)
         local idx = {}
-        for _, e in ipairs(assert(require("catalog"):refresh())) do idx[e.book_id] = e.series_index end
+        for _, e in ipairs(assert(Fakes.refreshCatalogue())) do idx[e.book_id] = e.series_index end
         T.eq(idx, { 1, 2 })
     end)
 
     T.it("an unchanged book reuses its series number instead of asking again", function()
         local calls = Fakes.cwa(Fakes.library({ book(1, { series = { "S", 3 } }) }))
         local Catalog = require("catalog")
-        Catalog:refresh()
+        Fakes.refreshCatalogue()
         local before = #calls
-        Catalog:refresh()
+        Fakes.refreshCatalogue()
         for i = before + 1, #calls do
             T.ok(not calls[i]:match("^/ajax/book/"), "no second JSON request: " .. calls[i])
         end
         T.eq(Catalog:load()[1].series_index, 3)
+    end)
+
+    T.it("the books come first; series arrive after, keeping last time's meanwhile", function()
+        local routes = Fakes.library({ book(1, { series = { "S", 3 } }), book(2) })
+        local calls = Fakes.cwa(routes)
+        local Catalog = require("catalog")
+        local entries = assert(Catalog:refresh())
+        for _, c in ipairs(calls) do
+            T.ok(not c:match("^/opds/series/%d") and not c:match("^/ajax/"), "no series request yet: " .. c)
+        end
+        T.eq(entries[1].series, nil, "not known yet")
+        local steps = {}
+        local function later(items, work, opts) table.insert(steps, { items, work, opts }) end
+        Catalog:refreshSeries(later)
+        T.eq(#steps, 1, "one series feed queued")
+        local function runStep(s) for _, item in ipairs(s[1]) do s[2](item) end s[3].on_done() end
+        runStep(steps[1])
+        T.eq(Catalog:load()[1].series, "S", "the name as soon as the feeds are read")
+        runStep(steps[2])
+        T.eq(Catalog:load()[1].series_index, 3)
+        entries = assert(Catalog:refresh())
+        T.eq(entries[1].series, "S", "a later refresh keeps it until the series are read again")
+        T.eq(entries[1].series_index, 3)
+        routes["/opds/series/letter/00"] = nil
+        Catalog:refreshSeries(Fakes.runNow)
+        T.eq(Catalog:load()[1].series, "S", "an unreadable series index changes nothing")
     end)
 
     T.it("marks books read on the server", function()

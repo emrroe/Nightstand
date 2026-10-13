@@ -16,6 +16,7 @@ local logger = require("logger")
 local util = require("util")
 local rapidjson = require("rapidjson")
 local Settings = require("settings")
+local _ = require("gettext")
 
 local ALL_BOOKS = "/opds/books/letter/00"
 
@@ -123,12 +124,14 @@ end
 
 --- Stream a path from the server straight into a local file. Book files can
 --- run to tens of megabytes, so this does not buffer the body the way get() does.
+--- `dest` only appears once the whole file has arrived.
 function Catalog:fetchTo(path, dest)
     local server = Settings:get("server"):gsub("/+$", "")
     if server == "" then return false, "no server configured" end
     local user, password = credentials()
 
-    local handle, io_err = io.open(dest, "wb")
+    local part = dest .. ".part"
+    local handle, io_err = io.open(part, "wb")
     if not handle then return false, io_err or "could not write the file" end
 
     socketutil:set_timeout(20, 300)
@@ -141,10 +144,17 @@ function Catalog:fetchTo(path, dest)
         password = password,
     })
     socketutil:reset_timeout()
+    -- a transfer cut off midway never tells the sink to close the file
+    if io.type(handle) == "file" then handle:close() end
 
     if code ~= 200 then
-        os.remove(dest)
+        os.remove(part)
         return false, tostring(status or code)
+    end
+    local ok, err = os.rename(part, dest)
+    if not ok then
+        os.remove(part)
+        return false, err
     end
     return true
 end
@@ -218,41 +228,73 @@ end
 
 --- Series name and position for each book. The book entries carry no series,
 --- so this walks CWA's series feeds; each lists its books in series order.
-function Catalog:seriesById()
-    local out = {}
-    local index = self:entryBlocks("/opds/series/letter/00")
-    for _index, block in ipairs(index or {}) do
-        local name = decode(block:match("<title>(.-)</title>"))
+--- Each series in CWA's index, as `{ name, href }`; nil when it cannot be read.
+function Catalog:seriesFeeds()
+    local blocks = self:entryBlocks("/opds/series/letter/00")
+    if not blocks then return nil end
+    local feeds = {}
+    for _index, block in ipairs(blocks) do
         local href
         for attrs in block:gmatch("<link([^>]*)>") do
             href = attrs:match('href="(/opds/series/%d+[^"]*)"') or href
         end
-        if href then
-            for position, id in ipairs(self:idsIn(decode(href)) or {}) do
-                out[id] = { name = name, index = position }
-            end
-        end
+        if href then table.insert(feeds, { name = decode(block:match("<title>(.-)</title>")), href = decode(href) }) end
     end
-    return out
+    return feeds
 end
 
 --- The real position in the series ("book 3"), which OPDS leaves out. CWA's
---- book JSON has it, keyed by uuid; an unchanged book keeps the last answer.
-function Catalog:seriesIndex(entry, previous)
-    if previous and previous.updated == entry.updated and previous.series_index_known then
-        entry.series_index_known = true
-        return previous.series_index
-    end
-    if not entry.uuid then return nil end
+--- book JSON has it, keyed by uuid.
+function Catalog:fetchSeriesIndex(entry)
+    if not entry.uuid then return end
     local body = self:get("/ajax/book/" .. entry.uuid)
     local ok, data = pcall(rapidjson.decode, body or "")
     if ok and type(data) == "table" and tonumber(data.series_index) then
+        entry.series_index = tonumber(data.series_index)
         entry.series_index_known = true
-        return tonumber(data.series_index)
     end
 end
 
+--- Which series each book is in, and its number there. Slow on a big
+--- library -- a feed per series, then a request per book whose number is not
+--- known yet -- so it runs through `run` (Background.run), one request a step,
+--- after the books themselves are saved. `on_done` follows the last step.
+function Catalog:refreshSeries(run, on_done)
+    run = run or require("background").run
+    local feeds = self:seriesFeeds()
+    if not feeds then
+        if on_done then on_done() end
+        return
+    end
+    local found = {}
+    local function finished()
+        self:save()
+        if on_done then on_done() end
+    end
+    local function numbers()
+        for _index, entry in ipairs(self.entries or {}) do
+            local s = found[entry.book_id]
+            if s and entry.series ~= s.name then entry.series_index_known = nil end
+            entry.series = s and s.name or nil
+            if not entry.series_index_known then entry.series_index = s and s.index or nil end
+        end
+        local unknown = {}
+        for _index, entry in ipairs(self.entries or {}) do
+            if entry.series and not entry.series_index_known then table.insert(unknown, entry) end
+        end
+        run(unknown, function(entry) self:fetchSeriesIndex(entry) end,
+            { label = _("Series numbers"), on_done = finished })
+    end
+    run(feeds, function(feed)
+        for position, id in ipairs(self:idsIn(feed.href) or {}) do
+            found[id] = { name = feed.name, index = position }
+        end
+    end, { label = _("Series"), on_done = numbers })
+end
+
 --- Pull the flat book feed and keep the fields the home and library need.
+--- Series come after, through `refreshSeries`; until then each book keeps
+--- the series it had, unless it changed on the server.
 function Catalog:refresh()
     local blocks, err = self:entryBlocks(ALL_BOOKS)
     if not blocks then
@@ -286,7 +328,6 @@ function Catalog:refresh()
 
     -- The extras below are best effort: a missing one only costs a sort key.
     local added = self:idsIn("/opds/new")
-    local series = self:seriesById()
     local read = {}
     for _index, id in ipairs(self:idsIn("/opds/readbooks") or {}) do read[id] = true end
     local rank = {}
@@ -295,10 +336,10 @@ function Catalog:refresh()
     for _index, old in ipairs(self:load() or {}) do previous[old.book_id] = old end
     for _index, entry in ipairs(entries) do
         entry.added_rank = rank[entry.book_id]
-        local s = series[entry.book_id]
-        if s then
-            entry.series = s.name
-            entry.series_index = self:seriesIndex(entry, previous[entry.book_id]) or s.index
+        local old = previous[entry.book_id]
+        if old and old.series then
+            entry.series, entry.series_index = old.series, old.series_index
+            entry.series_index_known = old.updated == entry.updated and old.series_index_known or nil
         end
         entry.read_on_server = read[entry.book_id] or nil
     end

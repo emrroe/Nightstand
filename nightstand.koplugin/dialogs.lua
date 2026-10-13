@@ -225,6 +225,8 @@ end
 
 function Note:onTap()
     UIManager:close(self)
+    -- set by KOReader's Trapper while work it can stop runs under the note
+    if self.dismiss_callback then self.dismiss_callback() end
     return true
 end
 

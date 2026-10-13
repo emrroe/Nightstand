@@ -21,17 +21,25 @@ local function showReader(file)
     require("apps/reader/readerui"):showReader(file)
 end
 
+-- The transfer runs in a separate process, so the screen stays alive and a
+-- tap on the note stops it.
 local function download(screen, entry)
-    local working = Dialogs.working(T(_("Fetching %1…"), entry.title))
-    local ok, result = require("download"):book(entry)
-    UIManager:close(working)
-    if not ok then
-        message(T(_("Could not fetch %1.\n%2"), entry.title, tostring(result)))
-        screen:refresh()
-        return
-    end
-    pcall(require("syncguard").seedDownload, entry, result)
-    showReader(result)
+    local Trapper = require("ui/trapper")
+    Trapper:wrap(function()
+        local working = Dialogs.working(T(_("Fetching %1… Tap to stop."), entry.title))
+        local ok, result = require("download"):book(entry, function(task)
+            return Trapper:dismissableRunInSubprocess(task, working)
+        end)
+        UIManager:close(working)
+        if ok == nil then return end
+        if not ok then
+            message(T(_("Could not fetch %1.\n%2"), entry.title, tostring(result)))
+            screen:refresh()
+            return
+        end
+        pcall(require("syncguard").seedDownload, entry, result)
+        showReader(result)
+    end)
 end
 
 --- Open `entry` from `screen`, which closes once the reader takes over.

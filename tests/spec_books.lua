@@ -9,7 +9,7 @@ local function setup(local_books, server_books)
     require("settings"):set("books_dir", dir)
     if server_books then
         Fakes.cwa(Fakes.library(server_books))
-        assert(require("catalog"):refresh())
+        assert(Fakes.refreshCatalogue())
     end
     return dir
 end
@@ -83,7 +83,7 @@ T.describe("books merged with the catalogue", function()
         Fakes.epub(dir .. "/x/Dune - Frank Herbert.epub", "", "")
         require("settings"):set("books_dir", dir)
         Fakes.cwa(Fakes.library({ { id = 3, title = "Dune", authors = { "Frank Herbert" } } }))
-        assert(require("catalog"):refresh())
+        assert(Fakes.refreshCatalogue())
         local entries = require("books"):list(dir)
         T.eq(#entries, 1)
         T.ok(entries[1].on_device and entries[1].book_id == 3, "matched by title and surname")
@@ -415,7 +415,7 @@ T.describe("downloads", function()
             <link rel="http://opds-spec.org/acquisition" href="/opds/download/9/pdf/" length="5" type="application/pdf"/>
             <link rel="http://opds-spec.org/acquisition" href="/opds/download/9/epub/" length="7" type="application/epub+zip"/>
             </entry>]] }) })
-        local e = assert(require("catalog"):refresh())[1]
+        local e = assert(Fakes.refreshCatalogue())[1]
         T.eq(e.download_url, "/opds/download/9/epub/")
         T.eq(e.size, 7)
     end)
@@ -442,6 +442,50 @@ T.describe("downloads", function()
         T.eq(ok, false)
         T.ok(err, "has a reason")
         T.ok(not entry.on_device)
+    end)
+    T.it("a download cut off halfway leaves nothing to mistake for the book", function()
+        local dir = Fakes.booksDir()
+        local Settings = require("settings")
+        Settings:set("books_dir", dir)
+        Settings:set("server", "https://cwa.test")
+        local http = require("socket.http")
+        local real = http.request
+        local cut = true
+        http.request = function(req)
+            req.sink("PK half a book")
+            if cut then return nil, "closed" end
+            req.sink(" and the rest")
+            req.sink(nil)
+            return 1, 200, {}, "200 OK"
+        end
+        local Download = require("download")
+        local entry = { title = "Dune", author = "Frank Herbert", download_url = "/opds/download/3/epub/" }
+        local dest = dir .. "/Frank Herbert/Dune - Frank Herbert.epub"
+        local ok = Download:book(entry)
+        local lfs = require("libs/libkoreader-lfs")
+        T.eq(ok, false)
+        T.eq(lfs.attributes(dest, "mode"), nil, "no truncated book")
+        T.eq(lfs.attributes(dest .. ".part", "mode"), nil, "and no leftover")
+        cut = false
+        local path
+        ok, path = Download:book(entry)
+        http.request = real
+        T.ok(ok, tostring(path))
+        local f = io.open(dest, "rb")
+        T.eq(f:read("*a"), "PK half a book and the rest", "fetched again, whole")
+        f:close()
+    end)
+    T.it("a download the reader stops is neither an error nor a book", function()
+        local dir = setup({}, { { id = 3, title = "Dune", authors = { "Frank Herbert" } } })
+        local entry = require("books"):list(dir)[1]
+        local ok, err = require("download"):book(entry, function() return false end)
+        T.eq(ok, nil)
+        T.eq(err, nil)
+        T.ok(not entry.on_device)
+        T.eq(require("libs/libkoreader-lfs").attributes(dir .. "/Frank Herbert/Dune - Frank Herbert.epub"), nil)
+        ok, err = require("download"):book(entry, function() return true end)
+        T.eq(ok, false, "a transfer process that died says so")
+        T.ok(err)
     end)
     T.it("no download link and no books folder are reported, not thrown", function()
         local Download = require("download")

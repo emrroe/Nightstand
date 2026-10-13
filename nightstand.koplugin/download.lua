@@ -29,17 +29,18 @@ function Download:destinationFor(entry)
     if title == "" then title = "Untitled" end
 
     local dir = books .. "/" .. author
-    if lfs.attributes(dir, "mode") ~= "directory" then
-        util.makePath(dir)
-    end
     -- the format is in CWA's link: /opds/download/<id>/<format>/
     local format = (entry.download_url or ""):match("/opds/download/%d+/(%w+)/?$") or "epub"
     return string.format("%s/%s - %s.%s", dir, title, author, format:lower())
 end
 
---- Returns ok, path-or-error. On success `entry` is updated in place so the
---- caller can open it without rebuilding the shelf.
-function Download:book(entry)
+local function inProcess(task) return true, task() end
+
+--- Returns ok, path-or-error; ok is nil when the reader stopped it. On
+--- success `entry` is updated in place so the caller can open it without
+--- rebuilding the shelf. `run(task)` runs the transfer and returns whether
+--- it completed, then the task's results (default: here, to the end).
+function Download:book(entry, run)
     if not entry.download_url then return false, "this book has no download link" end
     if Settings:booksDir() == "" then return false, "no books folder is set" end
 
@@ -47,8 +48,13 @@ function Download:book(entry)
     if lfs.attributes(dest, "mode") == "file" then
         logger.info("Nightstand: already on disk:", dest)
     else
-        local ok, err = Catalog:fetchTo(entry.download_url, dest)
-        if not ok then return false, err end
+        util.makePath((dest:match("^(.*)/")))
+        local completed, ok, err = (run or inProcess)(function() return Catalog:fetchTo(entry.download_url, dest) end)
+        if not completed then
+            os.remove(dest .. ".part")
+            return nil
+        end
+        if not ok then return false, err or "the transfer ended unexpectedly" end
     end
 
     local checksum = util.partialMD5(dest)

@@ -190,8 +190,9 @@ function Nightstand:onResume()
     end)
 end
 
---- Pull the CWA catalogue (quick, shown as busy), then fetch covers and
---- reading positions in the background while the screens stay usable.
+--- Pull the CWA catalogue (quick, shown as busy), then fetch series,
+--- covers and reading positions in the background while the screens stay
+--- usable.
 function Nightstand:refreshCatalogue(touchmenu_instance)
     local working = Dialogs.working(_("Refreshing catalogue…"))
     local entries, err = Catalog:refresh()
@@ -202,6 +203,7 @@ function Nightstand:refreshCatalogue(touchmenu_instance)
     end
     Availability:invalidate()
     if touchmenu_instance then touchmenu_instance:updateItems() end
+    Catalog:refreshSeries()
     self:refreshInBackground(Books:list(Settings:booksDir()))
 end
 

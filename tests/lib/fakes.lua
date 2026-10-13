@@ -208,6 +208,21 @@ function Fakes.cwa(routes)
     return calls
 end
 
+--- Background.run done at once, for code that hands slow work to it.
+function Fakes.runNow(items, work, opts)
+    for _, item in ipairs(items) do work(item) end
+    if opts and opts.on_done then opts.on_done() end
+end
+
+--- The catalogue and its series, as a refresh leaves them once the
+--- background work is done.
+function Fakes.refreshCatalogue()
+    local Catalog = require("catalog")
+    local entries, err = Catalog:refresh()
+    if entries then Catalog:refreshSeries(Fakes.runNow) end
+    return entries, err
+end
+
 --- A Hardcover server: device flow, rotating refresh tokens, replay
 --- detection and `me`. `opts.pending` polls before approval, `opts.deny`.
 function Fakes.hardcover(opts)

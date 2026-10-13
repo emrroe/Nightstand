@@ -56,7 +56,7 @@ local DATASETS = {}
 
 local function useServer(books, with_covers)
     Fakes.cwa(Fakes.library(books))
-    assert(require("catalog"):refresh())
+    assert(Fakes.refreshCatalogue())
     if with_covers then
         local CoverCache = require("covercache")
         for _, e in ipairs(require("catalog"):load()) do CoverCache:fetchRemote(e.book_id, e.cover_url) end
