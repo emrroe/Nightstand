@@ -42,7 +42,10 @@ function SyncEngine.new(ui, opts)
         clock = opts.clock or now,
     }, SyncEngine)
     self.save_task = function() self:save() end
-    self.check_task = function() self:check() end
+    self.check_task = function()
+        self.started = true
+        self:check()
+    end
     return self
 end
 
@@ -144,7 +147,7 @@ function SyncEngine:ask(remote, here)
         -- only an answer closes it: a stray tap must not decide
         dismissable = false,
         ok_text = T(_("Go to %1"), device),
-        cancel_text = _("Keep this one"),
+        cancel_text = _("Stay here"),
         ok_callback = function()
             self.asking = false
             self:acknowledge(remote)
@@ -182,6 +185,9 @@ function SyncEngine:opened()
 end
 
 function SyncEngine:pageTurned()
+    -- the reader reports its first page while it is still being built: a
+    -- question asked then would end up underneath the book
+    if not self.started then return end
     self.dirty = true
     if self.checked then
         UIManager:unschedule(self.save_task)

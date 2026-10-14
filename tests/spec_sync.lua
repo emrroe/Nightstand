@@ -161,6 +161,16 @@ T.describe("nothing is saved before this device has compared with the server", f
         shown[1].cancel_callback()
         T.eq(puts(calls), 1, "keeping this device's place saves it")
     end)
+    T.it("the page shown while the book is still opening neither asks nor counts as reading", function()
+        fresh(); pending = {}
+        local calls = Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
+        local e = engine(reader(0.03))
+        e:pageTurned()
+        T.eq(#calls, 0, "not asked while the reader is being built")
+        T.eq(#shown, 0)
+        e:opened(); drain()
+        T.eq(#shown, 1, "asked once the reader is up")
+    end)
     T.it("going to the other device's place moves the reader and saves nothing yet", function()
         fresh(); pending = {}
         local calls = Fakes.cwa({ ["/kosync/syncs/progress/booksum"] = record(0.40) })
