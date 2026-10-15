@@ -34,6 +34,8 @@ local Nightstand = WidgetContainer:extend{
 -- rather than a screen you navigate to; the file browser stays underneath as
 -- the way out.
 local shown_home = nil
+-- Open Nightstand was chosen in a book: Home follows once it has closed
+local home_after_reader = false
 
 local SYNC_PLUGIN_NAMES = { cwasync = _("CWA Progress Sync"), kosync = _("Progress sync") }
 
@@ -136,7 +138,9 @@ function Nightstand:openKoreaderMenu()
 end
 
 function Nightstand:openAsHome()
-    if not Settings:get("replace_file_browser") then return end
+    local asked = home_after_reader
+    home_after_reader = false
+    if not (Settings:get("replace_file_browser") or asked) then return end
     local Welcome = require("welcomescreen")
     if Welcome.needed() then
         return UIManager:nextTick(function() UIManager:show(Welcome:new{ plugin = self }) end)
@@ -157,6 +161,12 @@ function Nightstand:open()
         Dialogs.note(_("Set a books folder first, in Settings."))
         return
     end
+    -- from a book: close it the way the reader's own Home button does, so
+    -- where it stands and when it was read are saved before Home reads them
+    if self.ui.document then
+        home_after_reader = true
+        return self.ui:onHome()
+    end
     -- a Home left open underneath (the file browser was created over it)
     -- must not block a fresh one on top
     if shown_home then UIManager:close(shown_home) end
@@ -172,10 +182,12 @@ end
 --- refresh. Quietly skipped when offline; the next wake or refresh catches up.
 function Nightstand:onResume()
     if self.sync then return self.sync:woke() end
-    if not Settings:get("refresh_on_wake") then return end
     UIManager:scheduleIn(3, function()
         local home = shown_home
-        if not (home and UIManager:isWidgetShown(home) and Net.isOnline()) then return end
+        if not (home and UIManager:isWidgetShown(home)) then return end
+        -- "today 23:50" may be yesterday by now
+        home:refresh()
+        if not (Settings:get("refresh_on_wake") and Net.isOnline()) then return end
         local moving = {}
         for _index, entry in ipairs(home.entries) do
             if entry.on_device or entry.status == "reading" then table.insert(moving, entry) end

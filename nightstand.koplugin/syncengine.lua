@@ -83,11 +83,24 @@ local function deviceId()
     return G_reader_settings and G_reader_settings:readSetting("device_id")
 end
 
+-- answers are kept in the server's own time, whatever its clock is off by
+local function serverTime(remote) return remote.server_timestamp or remote.timestamp end
+
 --- A position from another device that this book has already answered for
 --- (by going there or by keeping its own) is not asked about again.
-function SyncEngine:seen(remote)
-    local seen = self.ui.doc_settings and self.ui.doc_settings:readSetting("nightstand_sync_seen")
-    return seen ~= nil and remote.timestamp ~= nil and remote.timestamp <= seen
+local function seen(settings, remote)
+    local answered = settings and settings:readSetting("nightstand_sync_seen")
+    return answered ~= nil and serverTime(remote) ~= nil and serverTime(remote) <= answered
+end
+
+--- Whether `remote` is a different place, left there by another device, that
+--- this book has not answered for yet: then the reader is asked.
+local function worthAsking(remote, here, settings)
+    if not remote then return false end
+    if remote.progress == here.progress or math.abs(remote.percentage - here.percentage) < SAME_PLACE then
+        return false
+    end
+    return not (remote.device_id ~= nil and remote.device_id == deviceId()) and not seen(settings, remote)
 end
 
 --- The server knows this device's place as `percentage`: Home may then open
@@ -98,7 +111,7 @@ end
 
 function SyncEngine:acknowledge(remote)
     if self.ui.doc_settings then
-        self.ui.doc_settings:saveSetting("nightstand_sync_seen", remote.timestamp or self.clock())
+        self.ui.doc_settings:saveSetting("nightstand_sync_seen", serverTime(remote) or self.clock())
     end
 end
 
@@ -117,9 +130,7 @@ function SyncEngine:check()
         self:markSynced(here.percentage)
         return self:settle()
     end
-    if not remote or (remote.device_id ~= nil and remote.device_id == deviceId()) or self:seen(remote) then
-        return self:settle()
-    end
+    if not worthAsking(remote, here, self.ui.doc_settings) then return self:settle() end
     self:ask(remote, here)
 end
 
@@ -135,8 +146,8 @@ local function when(timestamp)
     return os.date("%d %b %H:%M", timestamp)
 end
 
-function SyncEngine:ask(remote, here)
-    self.asking = true
+--- Go to where another device is, or stay at `here`?
+local function question(remote, here, go, stay)
     local device = remote.device or _("Another device")
     local pct = function(p) return math.floor(p * 100 + 0.5) end
     local at = when(remote.timestamp)
@@ -148,20 +159,52 @@ function SyncEngine:ask(remote, here)
         dismissable = false,
         ok_text = T(_("Go to %1"), device),
         cancel_text = _("Stay here"),
-        ok_callback = function()
-            self.asking = false
-            self:acknowledge(remote)
-            self.checked, self.dirty = true, false
-            self:markSynced(remote.percentage)
-            if remote.progress then self:goTo(remote.progress) end
-        end,
-        cancel_callback = function()
-            self.asking = false
-            self:acknowledge(remote)
-            self.dirty = true
-            self:settle()
-        end,
+        ok_callback = go,
+        cancel_callback = stay,
     }
+end
+
+function SyncEngine:ask(remote, here)
+    self.asking = true
+    question(remote, here, function()
+        self.asking = false
+        self:acknowledge(remote)
+        self.checked, self.dirty = true, false
+        self:markSynced(remote.percentage)
+        if remote.progress then self:goTo(remote.progress) end
+    end, function()
+        self.asking = false
+        self:acknowledge(remote)
+        self.dirty = true
+        self:settle()
+    end)
+end
+
+--- Opening `file` from Home: when another device left the book somewhere
+--- else, the question comes now, over Home, and `open` follows the answer --
+--- the reader then has nothing left to ask. Offline, or with nothing to ask,
+--- it opens straight away and the reader compares once it can.
+function SyncEngine.beforeOpening(file, open)
+    if not SyncServer.enabled() or not NetworkMgr:isOnline() or not SyncServer.reachable() then return open() end
+    local settings = require("docsettings"):open(file)
+    local document = settings:readSetting("partial_md5_checksum")
+    if not document then
+        local ok, sum = pcall(require("util").partialMD5, file)
+        document = ok and sum or nil
+    end
+    local remote = document and SyncServer.get(document)
+    local page = settings:readSetting("last_page")
+    local here = { progress = settings:readSetting("last_xpointer") or (page and tostring(page)),
+                   percentage = settings:readSetting("percent_finished") or 0 }
+    if not worthAsking(remote, here, settings) then return open() end
+    question(remote, here, function()
+        require("progress"):seed(file, remote, true, serverTime(remote))
+        open()
+    end, function()
+        settings:saveSetting("nightstand_sync_seen", serverTime(remote))
+        settings:flush()
+        open()
+    end)
 end
 
 --- Save this device's position, if it has been compared and has moved.

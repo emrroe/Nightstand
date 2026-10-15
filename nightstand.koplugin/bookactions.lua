@@ -42,11 +42,15 @@ end
 function BookActions.open(screen, entry)
     if entry.on_device and entry.file then
         -- open where Home said the book is: another device's newer position,
-        -- unless this device read on unsynced; then the reader asks which to keep
+        -- unless this device read on unsynced
         if entry.remote and not Progress.unsynced(entry.file) then
             Progress:seed(entry.file, entry.remote, true)
         end
-        return showReader(entry.file)
+        local function open() showReader(entry.file) end
+        local ui = screen and screen.plugin and screen.plugin.ui
+        if ui and require("setup").otherSyncRunning(ui) then return open() end
+        -- any other place still to choose from is asked about before the book opens
+        return require("syncengine").beforeOpening(entry.file, open)
     end
     if not Net.mayDownload() then
         return Dialogs.note(_("This phone is on mobile data and “Over Wi-Fi only” is on. Connect to Wi-Fi, or turn that off in Settings."))

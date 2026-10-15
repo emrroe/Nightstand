@@ -150,7 +150,7 @@ function Progress:seed(file, record, force, answered)
     settings:saveSetting("percent_finished", record.percentage)
     settings:saveSetting("nightstand_synced", record.percentage)
     -- the book now opens at this position: the sync has nothing to ask about it
-    answered = answered or record.timestamp
+    answered = answered or record.server_timestamp or record.timestamp
     if answered then settings:saveSetting("nightstand_sync_seen", answered) end
     settings:flush()
     return true

@@ -93,12 +93,15 @@ function SyncServer.get(document, server)
     if code ~= 200 then return nil, code and ("HTTP " .. code) or data end
     if type(data) ~= "table" or type(data.percentage) ~= "number" then return nil end
     local function str(v) return type(v) == "string" and v or nil end
+    local stamp = type(data.timestamp) == "number" and data.timestamp or nil
     return {
         percentage = data.percentage,
         progress = type(data.progress) == "number" and tostring(data.progress) or str(data.progress),
         device = str(data.device),
         device_id = str(data.device_id),
-        timestamp = type(data.timestamp) == "number" and data.timestamp or nil,
+        timestamp = stamp and stamp + SyncServer.clockOffset(server),
+        -- as the server said it: what "already answered" is compared in
+        server_timestamp = stamp,
     }
 end
 
@@ -107,15 +110,47 @@ function SyncServer.put(document, record, server)
     server = server or SyncServer.current()
     if server.kind == "off" then return false, "sync is off" end
     local Device = require("device")
-    local code, err = SyncServer.request(server, "PUT", "/syncs/progress", {
+    local payload = {
         document = document,
         progress = record.progress,
         percentage = record.percentage,
         device = Device.model or "Nightstand",
         device_id = G_reader_settings and G_reader_settings:readSetting("device_id") or "nightstand",
-    })
-    if code == 200 or code == 202 then return true end
-    return false, code and ("HTTP " .. code) or err
+    }
+    local code, answer = SyncServer.request(server, "PUT", "/syncs/progress", payload)
+    if code == 200 or code == 202 then
+        if type(answer) == "table" and type(answer.timestamp) == "number" then
+            SyncServer.measureClock(server, payload, answer.timestamp)
+        end
+        return true
+    end
+    return false, code and ("HTTP " .. code) or answer
+end
+
+-- CWA stores a save's time in UTC but reads it back as the server's local
+-- time, so a server not set to UTC dates every position hours early. A save
+-- is answered with the true time; reading it straight back shows the gap.
+local RECHECK = 12 * 3600  -- daylight saving moves the gap twice a year
+
+function SyncServer.clockOffset(server)
+    local clock = Settings:get("sync_clock")
+    return clock and clock.url == server.url and clock.offset or 0
+end
+
+function SyncServer.measureClock(server, payload, told)
+    local clock = Settings:get("sync_clock")
+    if clock and clock.url == server.url and os.time() - (clock.at or 0) < RECHECK then return end
+    local code, back = SyncServer.request(server, "GET", "/syncs/progress/" .. payload.document)
+    -- another device saving in between would say nothing about the clock
+    if code ~= 200 or type(back) ~= "table" or type(back.timestamp) ~= "number"
+       or back.device_id ~= payload.device_id or type(back.percentage) ~= "number"
+       or math.abs(back.percentage - payload.percentage) > 1e-6 then
+        return
+    end
+    -- time zones differ by whole quarter hours; the rest is the request's own time
+    local offset = math.floor((told - back.timestamp) / 900 + 0.5) * 900
+    if math.abs(offset) > 14 * 3600 then return end
+    Settings:set("sync_clock", { url = server.url, offset = offset, at = os.time() })
 end
 
 --- Whether the sync server answers at all, asked with a short timeout and

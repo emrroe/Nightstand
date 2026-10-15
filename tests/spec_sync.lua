@@ -298,4 +298,129 @@ T.describe("earlier positions", function()
     end)
 end)
 
+T.describe("a server whose clock reads back hours early", function()
+    --- Like CWA in a container set to Brussels: answers a save with the true
+    --- time, but every stored time comes back `behind` seconds early.
+    local function shiftedServer(behind)
+        local stored
+        local SyncServer = require("syncserver")
+        SyncServer.request = function(_server, method, path, payload)
+            if method == "PUT" then
+                stored = {}
+                for k, v in pairs(payload) do stored[k] = v end
+                stored.timestamp = os.time()
+                return 200, { document = payload.document, timestamp = stored.timestamp }
+            end
+            if method == "GET" and path:match("^/syncs/progress/") then
+                if not stored then return 200, {} end
+                local copy = {}
+                for k, v in pairs(stored) do copy[k] = v end
+                copy.timestamp = stored.timestamp - behind
+                return 200, copy
+            end
+            return 404
+        end
+        return function(record) stored = record end
+    end
+
+    T.it("a save measures the gap and later positions are dated right", function()
+        fresh()
+        Fakes.cwa({})
+        shiftedServer(7200)
+        local SyncServer = require("syncserver")
+        T.ok(SyncServer.put("booksum", { percentage = 0.21, progress = XP }))
+        local back = SyncServer.get("booksum")
+        T.ok(math.abs(back.timestamp - os.time()) < 5, "the true time, not two hours ago")
+        T.ok(math.abs(back.server_timestamp - (os.time() - 7200)) < 5, "the server's own kept alongside")
+    end)
+    T.it("a save overtaken by another device measures nothing", function()
+        fresh()
+        Fakes.cwa({})
+        local SyncServer = require("syncserver")
+        local request = SyncServer.request
+        SyncServer.request = function(server, method, path, payload)
+            if method == "PUT" then return 200, { timestamp = os.time() } end
+            return 200, { percentage = 0.5, device_id = "nova2-id", timestamp = os.time() - 7200 }
+        end
+        SyncServer.put("booksum", { percentage = 0.21, progress = XP })
+        SyncServer.request = request
+        T.eq(require("settings"):get("sync_clock"), nil)
+    end)
+    T.it("an answer keeps the server's own time, so the same position is not asked about again", function()
+        fresh(); pending = {}
+        Fakes.cwa({})
+        local put = shiftedServer(7200)
+        require("syncserver").put("booksum", { percentage = 0.1, progress = XP })
+        put({ percentage = 0.40, progress = XP, device = "nova2", device_id = "nova2-id", timestamp = os.time() })
+        local ui = reader(0.03)
+        engine(ui):opened(); drain()
+        T.eq(#shown, 1)
+        shown[1].cancel_callback()
+        T.ok(math.abs(ui.doc_settings:readSetting("nightstand_sync_seen") - (os.time() - 7200)) < 5)
+        shown = {}
+        engine(ui):opened(); drain()
+        T.eq(#shown, 0)
+    end)
+end)
+
+T.describe("opening a book from Home", function()
+    local function opener()
+        local opened = 0
+        return function() opened = opened + 1 end, function() return opened end
+    end
+    local function reading(file, percentage)
+        local settings = require("docsettings"):open(file)
+        settings:saveSetting("last_xpointer", "/body/DocFragment[2].0")
+        settings:saveSetting("percent_finished", percentage)
+        settings:flush()
+    end
+
+    T.it("another device's place is asked about first; the book opens there once chosen", function()
+        fresh(); pending = {}
+        local file = book("ask-go")
+        reading(file, 0.05)
+        Fakes.cwa({ ["/kosync/syncs/progress/" .. require("util").partialMD5(file)] = record(0.40) })
+        local open, count = opener()
+        require("syncengine").beforeOpening(file, open)
+        T.eq(#shown, 1, "asked")
+        T.eq(count(), 0, "the book waits for the answer")
+        shown[1].ok_callback()
+        T.eq(count(), 1)
+        local settings = require("docsettings"):open(file)
+        T.eq(settings:readSetting("last_xpointer"), XP, "opens at the other device's place")
+        T.eq(settings:readSetting("nightstand_sync_seen"), 1759300000, "and the reader will not ask again")
+    end)
+    T.it("staying opens where this device was, and the reader does not ask again", function()
+        fresh(); pending = {}
+        local file = book("ask-stay")
+        reading(file, 0.05)
+        Fakes.cwa({ ["/kosync/syncs/progress/" .. require("util").partialMD5(file)] = record(0.40) })
+        local open, count = opener()
+        require("syncengine").beforeOpening(file, open)
+        shown[1].cancel_callback()
+        T.eq(count(), 1)
+        local settings = require("docsettings"):open(file)
+        T.eq(settings:readSetting("last_xpointer"), "/body/DocFragment[2].0")
+        T.eq(settings:readSetting("nightstand_sync_seen"), 1759300000)
+    end)
+    T.it("nothing to ask, or no server to ask: it opens straight away", function()
+        for name, case in pairs({
+            same = { rec = record(0.051) },
+            own = { rec = record(0.40, "phone", { device_id = "phone-id" }) },
+            offline = { rec = record(0.40), unreachable = true },
+        }) do
+            fresh(); pending = {}
+            local file = book("straight-" .. name)
+            reading(file, 0.05)
+            Fakes.cwa({ ["/kosync/syncs/progress/" .. require("util").partialMD5(file)] = case.rec })
+            Fakes.sync_unreachable = case.unreachable
+            local open, count = opener()
+            require("syncengine").beforeOpening(file, open)
+            Fakes.sync_unreachable = false
+            T.eq(#shown, 0, name .. ": no question")
+            T.eq(count(), 1, name .. ": opened")
+        end
+    end)
+end)
+
 T.finish()
