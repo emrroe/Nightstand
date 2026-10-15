@@ -39,6 +39,8 @@ end
 
 function T.reset()
     for _, name in ipairs(T.PLUGIN_MODULES) do package.loaded[name] = nil end
+    -- no forked copies of the test run; spec_fetcher switches it back on
+    require("fetcher").fork = false
     local lfs = require("libs/libkoreader-lfs")
     local dir = T.settingsDir()
     for name in lfs.dir(dir) do

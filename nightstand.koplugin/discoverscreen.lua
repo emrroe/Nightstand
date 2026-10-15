@@ -18,12 +18,12 @@ local UIManager = require("ui/uimanager")
 local Dialogs = require("dialogs")
 local VerticalGroup = require("ui/widget/verticalgroup")
 local VerticalSpan = require("ui/widget/verticalspan")
-local Background = require("background")
 local BookActions = require("bookactions")
 local Books = require("books")
 local CoverGrid = require("covergrid")
 local Dim = require("dim")
 local Discover = require("discover")
+local Fetcher = require("fetcher")
 local Hardcover = require("hardcover")
 local NightstandScreen = require("screen")
 local Rows = require("rows")
@@ -54,6 +54,8 @@ local LISTS = {
 function DiscoverScreen:load()
     self.page = self.page or 1
     self.list = self.list or Settings:get("discover_list")
+    -- not asked for again on every redraw; reopening Discover tries again
+    self.failed_covers = self.failed_covers or {}
     self:loadView()
     self.library = Books:list(Settings:booksDir())
 end
@@ -293,14 +295,17 @@ function DiscoverScreen:fetchPageCovers()
     -- (columns fill top to bottom, so the page is still one contiguous range)
     for i = first, math.min(#self.entries, first + self.per_page - 1) do
         local entry = self.entries[i]
-        if entry.image_url and not Discover:hasCover(entry.hc_id, entry.image_url) then
+        if entry.image_url and not self.failed_covers[entry.hc_id]
+           and not Discover:hasCover(entry.hc_id, entry.image_url) then
             table.insert(missing, entry)
         end
     end
     if #missing == 0 then return end
     local page, list = self.page, self.list
-    Background.run(missing, function(entry) Discover:fetchCover(entry) end, {
-        on_done = function()
+    Fetcher.start("discover", missing, function(entry) return Discover:fetchCover(entry) end, {
+        key = tostring(list) .. ":" .. page,
+        on_arrive = function(entry, ok) if not ok then self.failed_covers[entry.hc_id] = true end end,
+        on_progress = function()
             if self.page == page and self.list == list and UIManager:isWidgetShown(self) then
                 self:refresh()
             end

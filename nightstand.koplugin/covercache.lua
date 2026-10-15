@@ -53,10 +53,16 @@ function CoverCache:fetchRemote(book_id, cover_url)
     local Catalog = require("catalog")
     local body = Catalog:get(cover_url)
     if not body then return false end
-    local file = io.open(self:coverFile(book_id), "wb")
+    -- written aside first: the download process may be stopped midway
+    local path = self:coverFile(book_id)
+    local file = io.open(path .. ".part", "wb")
     if not file then return false end
-    file:write(body)
+    local written = file:write(body)
     file:close()
+    if not written or not os.rename(path .. ".part", path) then
+        os.remove(path .. ".part")
+        return false
+    end
     -- it may have been painted as coverless before; look again next paint
     self.misses["id:" .. book_id] = nil
     return true

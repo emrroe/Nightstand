@@ -295,7 +295,7 @@ function HomeScreen:topBar(h, band_y)
     local row = HorizontalGroup:new{ align = "center", title }
     local button_w = Dim.px(40)
     local icons_w = 2 * button_w
-    local busy = require("background").status()
+    local busy = require("background").status() or require("fetcher").status()
     if busy then
         -- measure the title, not the row: a group asked its size mid-build keeps it
         local room = self.screen_w - 2 * self.gutter - icons_w - title:getSize().w - Dim.pad.large

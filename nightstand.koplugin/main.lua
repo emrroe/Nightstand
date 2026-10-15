@@ -16,6 +16,7 @@ local Catalog = require("catalog")
 local CoverCache = require("covercache")
 local Progress = require("progress")
 local Background = require("background")
+local Fetcher = require("fetcher")
 local Net = require("net")
 local Settings = require("settings")
 local _ = require("gettext")
@@ -199,6 +200,11 @@ function Nightstand:refreshCatalogue()
     self:refreshInBackground(Books:list(Settings:booksDir()))
 end
 
+local function redrawHome(final)
+    if not (shown_home and UIManager:isWidgetShown(shown_home)) then return end
+    if final then shown_home:reload() else shown_home:refresh() end
+end
+
 function Nightstand:refreshInBackground(shelf, positions_only)
     if not positions_only and Net.mayDownload() then
         local missing = {}
@@ -207,8 +213,13 @@ function Nightstand:refreshInBackground(shelf, positions_only)
                 table.insert(missing, entry)
             end
         end
-        Background.run(missing, function(entry) CoverCache:fetchRemote(entry.book_id, entry.cover_url) end,
-                       { label = _("Covers"), redraw_every = 4 })
+        local function fetch(entry) return CoverCache:fetchRemote(entry.book_id, entry.cover_url) end
+        Fetcher.start("covers", missing, fetch, {
+            label = _("Covers"),
+            -- the child cleared its own copy; it may have been painted coverless here
+            on_arrive = function(entry, ok) if ok then CoverCache.misses["id:" .. entry.book_id] = nil end end,
+            on_progress = function() redrawHome(false) end,
+        })
     end
     -- a sync server that is switched off would cost a timeout per book
     if not require("syncserver").reachable() then return end
@@ -220,10 +231,7 @@ function Nightstand:refreshInBackground(shelf, positions_only)
 end
 
 --- While background work runs, Home redraws as results arrive.
-Background.on_progress = function(final)
-    if not (shown_home and UIManager:isWidgetShown(shown_home)) then return end
-    if final then shown_home:reload() else shown_home:refresh() end
-end
+Background.on_progress = function(final) redrawHome(final) end
 
 --- The CWA server, its login, and the folder books go to. `on_saved` runs
 --- after Save (the welcome screen goes on from there).
