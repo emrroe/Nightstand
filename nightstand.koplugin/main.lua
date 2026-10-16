@@ -36,6 +36,8 @@ local Nightstand = WidgetContainer:extend{
 local shown_home = nil
 -- Open Nightstand was chosen in a book: Home follows once it has closed
 local home_after_reader = false
+-- positions are fetched once at startup, then on each wake
+local started = false
 
 local SYNC_PLUGIN_NAMES = { cwasync = _("CWA Progress Sync"), kosync = _("Progress sync") }
 
@@ -152,7 +154,10 @@ function Nightstand:openAsHome()
         if Catalog:count() == 0 and Settings:get("server") ~= "" and Net.isOnline() then
             self:refreshCatalogue()
             if shown_home then shown_home:reload() end
+        elseif not started then
+            self:refreshPositions()
         end
+        started = true
     end)
 end
 
@@ -177,6 +182,11 @@ function Nightstand:open()
     UIManager:show(shown_home)
 end
 
+local function redrawHome(final)
+    if not (shown_home and UIManager:isWidgetShown(shown_home)) then return end
+    if final then shown_home:reload() else shown_home:refresh() end
+end
+
 --- Coming back from sleep: positions may have moved on another device.
 --- In a book the sync engine compares again; on Home the shelves' positions
 --- refresh. Quietly skipped when offline; the next wake or refresh catches up.
@@ -187,13 +197,33 @@ function Nightstand:onResume()
         if not (home and UIManager:isWidgetShown(home)) then return end
         -- "today 23:50" may be yesterday by now
         home:refresh()
-        if not (Settings:get("refresh_on_wake") and Net.isOnline()) then return end
-        local moving = {}
-        for _index, entry in ipairs(home.entries) do
-            if entry.on_device or entry.status == "reading" then table.insert(moving, entry) end
-        end
-        self:refreshInBackground(moving, true)
+        self:refreshPositions()
     end)
+end
+
+--- Positions may have moved on another device since Home last looked:
+--- the book in progress first, shown as soon as it is in, then those of the
+--- other books on the device or being read, in the background.
+function Nightstand:refreshPositions()
+    local home = shown_home
+    if not (home and Settings:get("refresh_on_wake") and Net.isOnline()) then return end
+    if not require("syncserver").reachable() then return end
+    local current = home.current
+    if current then
+        Background.run({ current }, function(entry) Progress:refreshEntry(entry) end, {
+            on_done = function()
+                Progress:save()
+                redrawHome(true)
+            end,
+        })
+    end
+    local moving = {}
+    for _index, entry in ipairs(home.entries or {}) do
+        if entry ~= current and (entry.on_device or entry.status == "reading") then
+            table.insert(moving, entry)
+        end
+    end
+    self:refreshInBackground(moving, true)
 end
 
 --- Pull the CWA catalogue (quick, shown as busy), then fetch series,
@@ -210,11 +240,6 @@ function Nightstand:refreshCatalogue()
     Availability:invalidate()
     Catalog:refreshSeries()
     self:refreshInBackground(Books:list(Settings:booksDir()))
-end
-
-local function redrawHome(final)
-    if not (shown_home and UIManager:isWidgetShown(shown_home)) then return end
-    if final then shown_home:reload() else shown_home:refresh() end
 end
 
 function Nightstand:refreshInBackground(shelf, positions_only)

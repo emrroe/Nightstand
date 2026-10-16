@@ -247,7 +247,7 @@ function SettingsScreen:libraryRows(books_dir)
                              action = function()
                                  Net.whenOnline(function() plugin:refreshCatalogue() self:refresh() end)
                              end })
-        table.insert(rows, { label = _("Update positions when the device wakes"), key = "refresh_on_wake" })
+        table.insert(rows, { label = _("Update positions at start and on wake"), key = "refresh_on_wake" })
     end
     return rows
 end
